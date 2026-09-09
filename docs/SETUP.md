@@ -69,17 +69,28 @@ You also need your **Instagram user ID** (a long number, not your @handle).
    the URL when you open it: `drive.google.com/drive/folders/<folder_id>`
 2. In Google Cloud Console, create an **OAuth client ID** of type *Desktop app*.
    Keep the **client ID** and **client secret**
-3. Generate a **refresh token** for it, requesting the
-   `https://www.googleapis.com/auth/drive` scope
+3. Run the auth command, which handles the rest:
 
-You need all three — client ID, client secret and refresh token. Google will
-not issue an access token from a refresh token without the credentials of the
-client that created it.
+```bash
+pip install -e .
 
-**You will see an "unverified app" warning** when you authorise it. That is
-expected and correct: the app is yours, used only by you, and Google names
-personal use as an exception to its verification requirements. Click *Advanced*
-→ *Go to (your app)* to continue.
+autogram auth gdrive \
+  --client-id     <your client id> \
+  --client-secret <your client secret> \
+  --folder-id     <your folder id>
+```
+
+Your browser opens, you approve access, and the command prints a connection
+string ready to paste into GitHub. It checks the connection before printing, so
+if something is wrong you find out now rather than at 3am.
+
+On a machine with no browser, add `--no-browser` and open the printed URL
+somewhere else.
+
+**You will see an "unverified app" warning.** That is expected and correct: the
+app is yours, used only by you, and Google names personal use as an exception
+to its verification requirements. Click *Advanced* → *Go to (your app)* to
+continue.
 
 > ### ⚠️ Set the OAuth app to "In production"
 >
@@ -131,8 +142,8 @@ repository secret**.
 | `AUTOGRAM_IG_TOKEN` | The long-lived token from step 2 |
 | `AUTOGRAM_IG_USER_ID` | Your Instagram user ID from step 2 |
 
-`AUTOGRAM_STORAGE` takes the authoring backend on the first line and the
-serving backend on the second:
+`AUTOGRAM_STORAGE` takes the authoring backend on the first line — the string
+`autogram auth gdrive` printed — and the serving backend on the second:
 
 ```
 gdrive://<client_id>:<client_secret>:<refresh_token>@<folder_id>
@@ -184,8 +195,14 @@ caption.
 
 ### Before you wait for the schedule
 
-Run the workflow by hand with **dry run** ticked: *Actions* → *publish* → *Run
-workflow*. It reports exactly what it would do without posting anything.
+Check your storage connection any time with:
+
+```bash
+autogram auth verify "<your connection string>"
+```
+
+Then run the workflow by hand with **dry run** ticked: *Actions* → *publish* →
+*Run workflow*. It reports exactly what it would do without posting anything.
 
 ---
 
