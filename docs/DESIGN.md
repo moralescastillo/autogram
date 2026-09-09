@@ -1,0 +1,545 @@
+# Autogram — Design
+
+Status: **draft for review**. Nothing here is built yet.
+Date: 2026-09-09
+
+A public, forkable tool that publishes content to an Instagram Business or
+Creator account on a schedule. The user's content and state live in their own
+cloud storage; the repository holds only code. Scheduling runs on GitHub
+Actions.
+
+---
+
+## 1. Design principles
+
+These are the constraints every decision below is measured against.
+
+1. **Nothing personal enters the repository.** Not content, not captions, not
+   the publish ledger, not logs. A fork is pure code. The only user-specific
+   data in GitHub is a small set of encrypted secrets.
+2. **One string configures storage.** A single connection string names where
+   content lives. Everything else the tool discovers or creates for itself.
+3. **Phone and desktop are equal.** Every routine action — writing a caption,
+   reordering a carousel, publishing immediately — is doable from a phone
+   without touching GitHub.
+4. **The content is final.** The tool posts what it is given. It does not
+   watermark, resize, or crop. (One exception, forced by the API — see §5.2.)
+5. **Fail loudly, never silently.** A broken post is visible where the user
+   will trip over it.
+
+---
+
+## 2. What was verified, and what still needs checking
+
+Research done 2026-09-09 against Meta's developer documentation and current
+sources. Two findings changed the design materially.
+
+### 2.1 Verified
+
+| Fact | Consequence |
+|---|---|
+| **Instagram API with Instagram Login requires no linked Facebook Page** | Onboarding gets far simpler than the legacy setup. This is the path we use. |
+| Publishing is two steps: `POST /media` → `POST /media_publish` | Unchanged from the legacy code. |
+| Media must be at a **publicly fetchable URL**; Meta cURLs it | Storage must be able to serve media over HTTPS. No file upload exists. |
+| Container status polls `GET /<container-id>?fields=status_code` → `FINISHED` / `IN_PROGRESS` / `ERROR` / `EXPIRED` / `PUBLISHED` | Replaces the legacy retry-on-error-subcode hack with a real state check. |
+| **Images must be JPEG.** PNG, WebP, HEIC, and GIF are all rejected | Collides with principle 4. Resolved in §5.2. |
+| Carousel: max 10 items; **all children are cropped to the first item's aspect ratio** | Makes the `aspect` validation genuinely load-bearing. |
+| Feed aspect ratio must fall between 4:5 and 1.91:1 | Validation rule. |
+| Reels: 9:16, H.264/HEVC, up to 100MB / 15 min | Validation rule. |
+| Rate limit: 100 published posts per rolling 24h; carousel counts as one | Far above any realistic cadence. Not a design concern. |
+| Scopes: `instagram_business_basic`, `instagram_business_content_publish` | Setup instructions. |
+| **Long-lived tokens expire in 60 days and must be refreshed** while still valid; a token unrefreshed for 60 days is dead permanently | Drives §4 entirely. Refresh requires the token be ≥24h old. |
+| GitHub Actions disables scheduled workflows after 60 days of repository inactivity on public repos; **only commits reliably reset the clock** | Drives §7.4. |
+| GCS supports HMAC keys usable with S3-compatible clients against `storage.googleapis.com` | Keeps GCS config to one string, no service-account JSON. |
+| **Google Drive service accounts have zero storage quota** and cannot upload, even into a folder you own | Drive must use OAuth with a refresh token — which is one string, not a JSON blob. This reverses an earlier assumption in this design. |
+| A Google OAuth app left in "testing" status expires refresh tokens after **7 days** | The app must be set to "in production" — a status toggle, not a review, for personal scopes. Must be prominent in setup docs. |
+
+### 2.2 To verify during implementation
+
+Listed so they are not silently assumed:
+
+- **Current Graph API version.** Meta's docs show `v25.0`; secondary sources
+  say `v26.0`. Configurable, with the verified value as default.
+- **Instagram Tester role in development mode.** The expectation is that a user
+  can add their own account as a tester and publish without App Review. This
+  needs confirming against Meta's current policy — it is the single biggest
+  risk to "plug and play". If it turns out App Review is required even for
+  self-use, onboarding gains a review step and that must be documented honestly.
+- **Signed URL compatibility.** Whether Meta's fetcher accepts GCS V4 presigned
+  URLs generated via HMAC, and whether the `GoogleAccessId` parameter swap is
+  needed. Fallback: temporarily public objects, deleted after publish.
+- **Drive OAuth scope.** Whether `drive.file` (access only to files the app
+  touches) is sufficient, or whether full `drive` scope is needed to see
+  folders the user created by hand. `drive.file` is strongly preferred — it
+  limits the tool to its own folder. This likely decides whether the user
+  creates the folder structure through the tool or by hand.
+- **Whether `gh workflow enable` resets the inactivity clock**, which would
+  avoid keepalive commits entirely.
+
+---
+
+## 3. Architecture
+
+```
+┌────────────────────┐         ┌──────────────────────┐
+┌─────────────────────┐        ┌──────────────────────┐
+│  AUTHORING          │        │  User's fork (public)│
+│  Google Drive       │        │  code only, no data  │
+│                     │        │                      │
+│   queue/            │◄───────┤  GitHub Actions      │
+│   now/              │ reads  │  hourly cron         │
+│   published/        │ writes │                      │
+│   state/            │        │  Secrets:            │
+│     token.json      │        │   AUTOGRAM_STORAGE   │
+│     published.json  │        │   AUTOGRAM_IG_TOKEN  │
+│     log/            │        │   AUTOGRAM_IG_USER_ID│
+└──────────┬──────────┘        └──────────────────────┘
+           │ media staged for publish
+           ▼
+┌─────────────────────┐
+│  SERVING            │
+│  GCS (private)      │
+└──────────┬──────────┘
+           │ signed URL
+           ▼
+   ┌──────────────┐
+   │  Instagram   │  fetches media, publishes
+   │  Graph API   │
+   └──────────────┘
+```
+
+The Action is stateless. All state lives in the user's storage. This is what
+makes the fork disposable and keeps the repository clean.
+
+---
+
+## 4. Authentication and the token problem
+
+This is the hardest constraint in the design, and the one the legacy system
+never solved (README gap #1 — nothing refreshed the token).
+
+**The problem.** Long-lived Instagram tokens expire after 60 days. Refreshing
+returns a *new* token string. A GitHub Actions secret is the obvious place to
+store a token, but a workflow's default `GITHUB_TOKEN` cannot write repository
+secrets — so the Action cannot rotate its own secret without the user creating
+an additional personal access token with elevated permissions. That is both a
+security smell and an onboarding burden.
+
+**The solution.** The token lives in storage, not in GitHub.
+
+- `AUTOGRAM_IG_TOKEN` is a **bootstrap** secret, read only once.
+- On every run, the tool reads `state/token.json` from storage. If absent, it
+  seeds it from the bootstrap secret.
+- If the token expires in **fewer than 7 days**, the tool refreshes it and
+  writes the new token and `expires_at` back to `state/token.json`.
+- Refresh requires the token be at least 24 hours old; the tool checks this.
+
+```json
+{
+  "access_token": "IGQ...",
+  "expires_at": "2026-11-08T12:00:00Z",
+  "refreshed_at": "2026-09-09T12:00:00Z"
+}
+```
+
+Because the workflow runs hourly, a 7-day window gives roughly 168 chances to
+refresh before expiry. Any single failure is harmless.
+
+**Warning threshold.** If a token is within 7 days of expiry *and* refresh has
+failed, that is logged as an error and written to `state/log/` — the user finds
+out before a post is missed, not after.
+
+**A note on the existing token.** The legacy `IG_LL_ACCESS_TOKEN` was issued
+under the Facebook Login path (`graph.facebook.com`, with a linked Page). This
+design uses Instagram Login (`graph.instagram.com`) — a different app type and
+a different host. The old token will not work here. Setup means creating a
+fresh Meta app; there is no migration path, and pretending otherwise would
+waste time.
+
+---
+
+## 5. The content contract
+
+### 5.1 One folder per post
+
+The folder *is* the post. This is the central decision, and it exists to fix a
+specific failure in the legacy system: captions lived in a Google Sheet and
+were matched to media by name, so a rename or reorder silently paired the wrong
+caption with the wrong image. Here, the caption lives inside the post. It
+cannot desync, because there is nothing to match.
+
+```
+queue/
+  2026-09-20-lisbon-run/
+    post.md
+    01.jpg
+    02.jpg
+    03.jpg
+  2026-09-22-studio/
+    post.md
+    clip.mp4
+now/
+  urgent-announcement/
+    post.md
+    hero.jpg
+published/
+  2026-09-18-morning/
+    ...
+state/
+  token.json
+  published.json
+  log/
+    2026-09.jsonl
+```
+
+**Ordering** within a carousel is filename sort: `01.jpg`, `02.jpg`, `03.jpg`.
+Renaming reorders. This works on any device.
+
+**Queue order** is folder-name sort, which is why the date prefix convention is
+suggested — but it is only a convention, not parsed for meaning. Unlike the
+legacy system, **no metadata is encoded in filenames** (README gap #6: filename
+parsing was load-bearing and a rename broke activity matching). The only thing
+a name controls is order.
+
+### 5.2 `post.md`
+
+YAML front matter plus caption body. Everything is optional.
+
+```markdown
+---
+type: carousel        # single | carousel | reel | story
+aspect: 1:1           # validation only — see below
+user_tags:            # optional @-mentions in the media
+  - username: somebody
+    x: 0.5
+    y: 0.5
+---
+Morning loop along the river. 12k, and it finally felt easy.
+
+#running #lisbon #marathontraining
+```
+
+**Defaults when omitted.** `type` is inferred: one image → `single`; multiple
+images → `carousel`; one video → `reel`. A folder with no `post.md` at all is a
+valid post with no caption. That is the plug-and-play floor — drop three photos
+in a folder and it works.
+
+**`aspect` is a check, not a transform.** The API has no aspect parameter;
+Instagram reads the pixels. Declaring `aspect: 1:1` means the tool verifies
+your images are actually 1:1 and **fails before posting** if one is not. This
+matters most for carousels, where Instagram crops every child to match the
+first item — a mismatched image would be silently mangled. Omit the field and
+no check runs.
+
+**Hashtags** are just caption text; nothing special is needed. **User tags**
+are a real API field and are handled separately, as above.
+
+### 5.3 The one permitted transform
+
+Principle 4 says the tool does not process images. The API's JPEG-only rule
+forces exactly one exception, because phones produce HEIC and screenshots
+produce PNG — content that is otherwise final and correct.
+
+**The tool converts non-JPEG images to JPEG before publishing.** It does not
+resize, crop, or recompress beyond that. The original in storage is untouched;
+conversion happens on a copy in transit. This is mandatory rather than
+cosmetic: without it, the most common phone content simply cannot be posted.
+
+Videos are not transcoded. A video that does not meet Instagram's requirements
+fails validation with a clear message.
+
+### 5.4 Validation, before anything is uploaded
+
+Every check runs up front, so failures cost nothing and are explained
+precisely:
+
+- Carousel has 2–10 items
+- All carousel children share one aspect ratio (Instagram crops to the first
+  otherwise)
+- Feed aspect ratio between 4:5 and 1.91:1
+- Reel is 9:16, ≤100MB, ≤15 minutes
+- Declared `aspect`, if present, matches the actual pixels
+- Caption ≤2,200 characters, ≤30 hashtags
+- Media files are of a recognized type
+
+---
+
+## 6. Storage
+
+### 6.1 Two slots, not one
+
+Storage fills two distinct roles, and conflating them caused confusion earlier
+in this design:
+
+| Slot | Job | Requirement |
+|---|---|---|
+| **Authoring** | Where you arrange photos and write captions, from any device | A good mobile app |
+| **Serving** | Where Instagram fetches media over HTTPS | Public or signed URLs |
+
+One backend can fill both, or two can split the work. The interface is the same
+either way: list, read, write, move, and produce-a-fetchable-URL.
+
+### 6.2 The recommended pairing: Google Drive + GCS
+
+**Google Drive for authoring.** Good apps on desktop and mobile, and where the
+user in question already works. Auth is OAuth with a refresh token — **one
+string, no JSON blob.**
+
+An earlier draft of this design claimed Drive required a service-account JSON
+and recommended Dropbox on that basis. That was wrong twice over: service
+accounts have **zero storage quota** and cannot upload to Drive at all, and the
+correct OAuth path costs no more configuration than Dropbox does. The objection
+that separated the two backends does not exist.
+
+**GCS for serving.** HMAC keys give an access-key/secret pair usable with
+S3-compatible clients — again one string, no JSON blob. Media is served through
+signed URLs, so the bucket stays private; this matters because the token and
+ledger live there too.
+
+Pairing them keeps everything within one cloud provider, which is worth
+something for account management even though the two services authenticate
+separately.
+
+**The Drive trap to document loudly:** an OAuth app left in *testing* status
+expires refresh tokens after 7 days. It must be set to *in production* — a
+status toggle, not a review process, for an app requesting only personal
+scopes. This is the most likely setup mistake and belongs in bold in `SETUP.md`.
+
+### 6.2.1 Alternatives, supported but not default
+
+- **Dropbox** for authoring — marginally simpler token generation, equally good
+  apps. A legitimate choice; the tool supports it. If
+  `files/get_temporary_link` proves acceptable to Meta's fetcher, Dropbox can
+  fill both slots alone and needs no object storage at all.
+- **S3 or any S3-compatible store** for serving — the GCS implementation is an
+  S3-compatible client pointed at a different endpoint, so this comes nearly
+  free.
+- **GCS for both slots** — viable, but GCS has no good phone client, so
+  authoring means either clunky mobile access or a sync step. Only worth it for
+  someone who does not need the mobile half.
+
+### 6.2.2 The connection string
+
+One secret, `AUTOGRAM_STORAGE`, holds one or two connection strings:
+
+```
+gdrive://<refresh_token>@<folder_id>
+gs://<access_key>:<secret>@<bucket>/<prefix>
+dropbox://<refresh_token>@<root_path>
+s3://<access_key>:<secret>@<bucket>/<prefix>
+```
+
+When both an authoring and a serving backend are configured, the tool reads
+content from the first and stages media through the second. When only one is
+given, it fills both roles. This is the "one string" promise — with a second
+string only when the user deliberately splits the roles.
+
+### 6.3 Serving media to Instagram
+
+Meta must fetch media over HTTPS. No separate staging host is needed — the
+serving backend *is* the staging host.
+
+With the recommended pairing, publishing a post copies its media from Drive to
+GCS, generates a signed URL, hands it to Instagram, and deletes the staged copy
+once the post is live. Drive is never exposed publicly.
+
+Preference order for the URL: a short-lived **signed URL** (bucket stays
+private); failing that, a temporarily public object deleted immediately after
+publish. Which one is in use gets stated plainly once §2.2 verification is
+done.
+
+**Why Drive cannot serve directly.** Drive share links return an HTML viewer
+page, not raw bytes. Undocumented direct-download URL shapes exist and
+sometimes work for images, but they are unreliable and generally fail for
+video. Depending on them would be the kind of thing that breaks silently in two
+years, which is exactly what this design is trying to avoid.
+
+---
+
+## 7. Scheduling
+
+### 7.1 Policy
+
+`autogram.yml`, at the storage root — configuration lives with content, not in
+the repo:
+
+```yaml
+timezone: Europe/Lisbon
+
+schedule:
+  cadence: every 2 days      # or: monday,thursday | daily
+  window: "06:00-21:00"      # random time within this window
+```
+
+### 7.2 Randomized posting times
+
+The workflow runs **hourly**. On each run it computes whether this is the hour
+to post, using a deterministic seed derived from the date and account. The same
+day always yields the same target hour, so a run cannot fire twice, and no
+state is needed to remember the decision.
+
+The result is a post that lands at an unpredictable, human-looking time within
+the window while remaining fully reproducible and debuggable.
+
+### 7.3 Immediate posting
+
+Anything in `now/` is published on the next hourly run, ignoring cadence
+entirely. Drop a folder there from a phone; no GitHub interaction. Published
+posts move to `published/` like any other.
+
+### 7.4 Two Actions caveats
+
+**Drift.** Scheduled workflows fire late under load — minutes to an hour. Times
+are approximate by nature. (Accepted; see conversation.)
+
+**The 60-day inactivity rule.** Scheduled workflows on public repos are
+disabled after 60 days without repository activity, and only commits reliably
+reset the clock. The tool therefore includes a keepalive that commits a trivial
+marker before the deadline.
+
+This appears to violate principle 1, so to be explicit: the marker contains **a
+timestamp and nothing else** — no content, no captions, no evidence of what was
+posted or when. It is a heartbeat, not a record. If `gh workflow enable` turns
+out to reset the clock (§2.2), even that disappears.
+
+### 7.5 Concurrency
+
+```yaml
+concurrency:
+  group: autogram-publish
+  cancel-in-progress: false
+```
+
+Video processing can exceed an hour, overlapping the next tick. Combined with
+the ledger check (§8.1) before each publish, this makes double-posting
+structurally impossible — a real improvement on the legacy Sheets approach,
+where a read-act-delete cycle with no locking would race (README gap #5).
+
+---
+
+## 8. State and reporting
+
+### 8.1 The ledger
+
+`state/published.json`, in storage. Records what was published and when.
+Checked before every publish, which is what makes runs idempotent and retries
+safe.
+
+### 8.2 Logs
+
+`state/log/YYYY-MM.jsonl` — one JSON object per run. Machine-readable by
+design, so a separate tool can pick it up for email reporting without this
+codebase knowing anything about email. (The legacy system embedded SMTP
+credentials in source, and they leaked. This design keeps notification out of
+the tool entirely.)
+
+```json
+{"ts":"2026-09-20T14:00:00Z","event":"published","post":"2026-09-20-lisbon-run","type":"carousel","media_id":"178..."}
+{"ts":"2026-09-21T09:00:00Z","event":"error","post":"2026-09-22-studio","reason":"reel_too_long","detail":"video is 18m, limit 15m"}
+```
+
+### 8.3 Failure handling
+
+Three layers, all zero-configuration:
+
+1. **The Actions run fails** — GitHub emails the user by default.
+2. **`error.txt` is written into the post folder** — the user sees it in the
+   storage app, next to the content that needs fixing, with a plain-language
+   explanation. A failed post stays in `queue/` and is retried; it is not
+   silently skipped.
+3. **The structured log** captures it for downstream reporting.
+
+**Not doing:** opening GitHub issues (the repo is public — issue titles would
+leak posting activity), or sending email directly (credentials in the
+publishing path is the exact mistake the legacy system made).
+
+### 8.4 Webhook seam
+
+An interface with a no-op default. When a webhook URL is configured, run
+outcomes POST to it; with none, nothing happens and nothing is imported. Not
+implemented in v1 — the seam exists so adding it later touches one file.
+
+### 8.5 Container polling
+
+Meta suggests polling once a minute for up to five minutes. Large reels
+routinely take longer, so the ceiling is **15 minutes with backoff**. `ERROR`
+and `EXPIRED` are terminal and route to §8.3 immediately rather than burning
+the full timeout.
+
+---
+
+## 9. Repository layout
+
+```
+autogram/
+├── .github/workflows/
+│   ├── publish.yml           # hourly cron + manual dispatch
+│   └── keepalive.yml         # monthly marker commit
+├── src/autogram/
+│   ├── instagram/            # one Graph client, one API version
+│   ├── storage/              # base + gdrive + gcs + dropbox + s3
+│   ├── content/              # post discovery, post.md parsing, validation
+│   ├── scheduling/           # cadence + deterministic time selection
+│   └── state/                # token, ledger, log
+├── tests/
+├── docs/
+│   ├── DESIGN.md             # this file
+│   └── SETUP.md              # the onboarding walkthrough
+└── README.md
+```
+
+Python, matching the legacy code and keeping the door open for the watermark
+project as a separate upstream step.
+
+Note on the legacy code: two Graph clients on two API versions existed
+(README gap #3). This design has exactly one client, one configurable version.
+
+---
+
+## 10. Onboarding
+
+The honest version of "plug and play". Steps 1–3 are the real cost, and no
+design can remove them — they are Meta's requirements.
+
+1. Create a Meta app, add the Instagram product, add your account as a tester
+   *(pending §2.2 verification)*
+2. Generate a long-lived token with `instagram_business_basic` and
+   `instagram_business_content_publish`
+3. Create storage: a Google Drive folder plus an OAuth refresh token, and a
+   GCS bucket with an HMAC key. **Set the Google OAuth app to "in production"**
+   or the refresh token dies after 7 days (§6.2)
+4. Fork the repository
+5. Add three secrets: `AUTOGRAM_STORAGE`, `AUTOGRAM_IG_TOKEN`,
+   `AUTOGRAM_IG_USER_ID`
+6. Drop a folder of photos into `queue/`
+
+Realistically 15–20 minutes, nearly all of it in Meta's developer console.
+After that, the user never touches GitHub again — all ongoing work happens in
+their storage app, on whatever device they have.
+
+---
+
+## 11. Deliberately out of scope
+
+- **Watermarking and Garmin integration.** A separate project. If it happens,
+  it writes finished content into `queue/` and this tool never knows.
+- **A web UI.** Breaks the cheap and plug-and-play constraints.
+- **Multi-account.** One account per fork for v1. The config shape (a list, not
+  a scalar) leaves room without committing to it.
+- **Analytics and engagement.** This tool posts. Nothing more.
+- **The Facebook Login path.** Instagram Login is simpler and needs no Page.
+  Supporting both would double the auth surface for no gain.
+
+---
+
+## 12. Open questions
+
+1. **Should the tool create the folder structure on Drive, or expect the user
+   to?** Depends on the `drive.file` scope question in §2.2. Tool-created is
+   better for plug-and-play and for keeping the OAuth scope narrow.
+2. **Should a failed post block the queue** (nothing publishes until it is
+   fixed, preserving order) **or be skipped** (the next post goes out on time)?
+   Current draft retries and does not block.
+3. **How long should `published/` retain content** before archival or deletion?
+   Currently forever.
+4. **Repository name.** `autogram` is the working directory name.

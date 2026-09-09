@@ -1,0 +1,46 @@
+name: publish
+
+# Runs hourly; each run decides for itself whether this is the hour to post
+# (DESIGN.md §7.2). GitHub's scheduler drifts by minutes to an hour under load,
+# which is why posting times are a window rather than an exact time.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would happen without publishing"
+        type: boolean
+        default: false
+
+# A video container can take longer than an hour to process, so runs can
+# overlap. Queue them rather than cancelling: a cancelled run could abandon a
+# container mid-publish.
+concurrency:
+  group: autogram-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Publish if due
+        env:
+          AUTOGRAM_STORAGE: ${{ secrets.AUTOGRAM_STORAGE }}
+          AUTOGRAM_IG_TOKEN: ${{ secrets.AUTOGRAM_IG_TOKEN }}
+          AUTOGRAM_IG_USER_ID: ${{ secrets.AUTOGRAM_IG_USER_ID }}
+        run: autogram run ${{ inputs.dry_run && '--dry-run' || '' }}

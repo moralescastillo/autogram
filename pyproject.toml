@@ -1,0 +1,33 @@
+[project]
+name = "autogram"
+version = "0.1.0"
+description = "Schedule and publish content to an Instagram Business or Creator account from your own cloud storage."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    "requests",
+    "pyyaml",
+    "boto3",                    # GCS via S3-compatible XML API, and S3 itself
+    "google-api-python-client", # Drive
+    "google-auth-oauthlib",     # Drive OAuth refresh flow
+    "pillow",                   # JPEG conversion (the one permitted transform)
+    "pillow-heif",              # HEIC support — phones shoot HEIC
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+autogram = "autogram.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

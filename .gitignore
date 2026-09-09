@@ -1,0 +1,22 @@
+# Private reference material — never publish.
+# Contains account IDs, Drive folder IDs, and personal pipeline details.
+instagram-automation/
+
+# IDE
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets
+.env
+*.local.yml
+
+# Keepalive marker is committed deliberately; nothing else runtime-generated

@@ -1,0 +1,31 @@
+name: keepalive
+
+# GitHub disables scheduled workflows on public repositories after 60 days of
+# repository inactivity, and only commits reliably reset that clock. Without
+# this, publishing silently stops after two quiet months.
+#
+# The marker holds a timestamp and nothing else — no content, no captions, no
+# record of what was posted or when. It is a heartbeat, not a log, and so does
+# not breach the "nothing personal in the repository" rule (DESIGN.md §7.4).
+on:
+  schedule:
+    - cron: "0 3 1 * *" # monthly, well inside the 60-day window
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Touch marker
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .keepalive
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .keepalive
+          git diff --staged --quiet || git commit -m "chore: keepalive"
+          git push
