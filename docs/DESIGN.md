@@ -188,8 +188,10 @@ state/
     2026-09.jsonl
 ```
 
-**Ordering** within a carousel is filename sort: `01.jpg`, `02.jpg`, `03.jpg`.
-Renaming reorders. This works on any device.
+**Ordering** within a carousel is *natural* filename sort: `1.jpg`, `2.jpg`,
+`10.jpg` — numbers read as numbers, so `10` comes last rather than second.
+Renaming reorders. This works on any device, and zero-padded names
+(`01`, `02`) sort correctly too.
 
 **Queue order** is folder-name sort, which is why the date prefix convention is
 suggested — but it is only a convention, not parsed for meaning. Unlike the
@@ -215,6 +217,16 @@ Morning loop along the river. 12k, and it finally felt easy.
 
 #running #lisbon #marathontraining
 ```
+
+**A YAML trap, handled.** PyYAML implements YAML 1.1, where `1:1` is a
+*sexagesimal* (base-60) integer, not a string — it parses as `61`, and `4:5`
+as `245`. Since users will write ratios unquoted, both forms are accepted and
+the base-60 encoding is inverted exactly. Quoting (`"1:1"`) also works. Without
+this, every unquoted aspect ratio would silently validate against nonsense.
+
+**Unrecognised keys are an error.** A typo like `aspcet:` would otherwise be
+ignored in silence, and the user would never learn why their setting had no
+effect.
 
 **Defaults when omitted.** `type` is inferred: one image → `single`; multiple
 images → `carousel`; one video → `reel`. A folder with no `post.md` at all is a
@@ -242,6 +254,11 @@ resize, crop, or recompress beyond that. The original in storage is untouched;
 conversion happens on a copy in transit. This is mandatory rather than
 cosmetic: without it, the most common phone content simply cannot be posted.
 
+A JPEG that is already correctly oriented passes through byte-for-byte, so the
+common case loses nothing to recompression. Images needing rotation have it
+baked into the pixels and the EXIF tag dropped, rather than trusting Instagram
+to honour it. Transparency is flattened onto white, since JPEG has no alpha.
+
 Videos are not transcoded. A video that does not meet Instagram's requirements
 fails validation with a clear message.
 
@@ -253,11 +270,29 @@ precisely:
 - Carousel has 2–10 items
 - All carousel children share one aspect ratio (Instagram crops to the first
   otherwise)
-- Feed aspect ratio between 4:5 and 1.91:1
-- Reel is 9:16, ≤100MB, ≤15 minutes
-- Declared `aspect`, if present, matches the actual pixels
+- Feed aspect ratio between 4:5 and 1.91:1 — **stories are exempt**, since 9:16
+  is correct for them and would fail the feed bounds
+- Declared `type` matches the media present: a reel with no video, a story with
+  two files, a `single` with three images
+- Reel duration 3s–15min; story video ≤60s
+- Images ≤8MB after conversion, videos ≤100MB
+- Declared `aspect`, if present, matches the actual pixels (1% tolerance, so
+  1080×1081 counts as square)
 - Caption ≤2,200 characters, ≤30 hashtags
 - Media files are of a recognized type
+
+Ratios are measured **after** applying EXIF orientation. Phone cameras commonly
+store landscape pixels plus a "rotate 90°" tag, so raw dimensions would see a
+4:3 landscape where the user sees a 3:4 portrait and validate the wrong ratio
+entirely.
+
+Video checks depend on `ffprobe`. Where it is unavailable the video still
+uploads and only the dimension and duration checks are skipped, with a warning
+— Instagram remains the final authority, and these checks exist to fail faster
+and more legibly, not to be the only gate.
+
+**Every problem is reported at once.** Stopping at the first would have the
+user fix, wait an hour, and discover the next one.
 
 ---
 
