@@ -21,10 +21,12 @@ def test_surrounding_whitespace_is_tolerated():
     assert parse_storage(f"\n  {GDRIVE}  \n\n{GCS}\n\n") == (GDRIVE, GCS)
 
 
-def test_authoring_only_backend_alone_is_rejected():
-    # Drive cannot hand Instagram a URL, so this config could never publish.
-    with pytest.raises(ConfigError, match="cannot serve"):
-        parse_storage(GDRIVE)
+def test_authoring_only_backend_alone_is_accepted_here():
+    # Drive cannot hand Instagram a URL, but this is not where that is caught:
+    # `autogram run --dry-run` validates content with no serving backend at
+    # all, which is exactly when someone checks their setup before creating a
+    # bucket. The real run refuses (see test_run.py).
+    assert parse_storage(GDRIVE) == (GDRIVE, GDRIVE)
 
 
 def test_serving_slot_must_be_able_to_serve():

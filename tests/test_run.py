@@ -264,3 +264,35 @@ class TestBrokenPostsDoNotStopTheRun:
         _run_with_context(ctx, dry_run=False)
 
         assert "aspcet" in authoring.read("queue/broken/error.txt").decode()
+
+
+class TestServingRequirement:
+    def test_real_run_refuses_without_a_serving_backend(self, tmp_path):
+        # A dry run may preview with authoring-only storage; a real one must
+        # not, since it would have no URL to hand Instagram.
+        from autogram.config import Config
+        from autogram.run import build_context
+        from autogram.config import ConfigError
+
+        config = Config(
+            authoring_dsn=f"local://{tmp_path}",
+            serving_dsn=f"local://{tmp_path}",
+            ig_bootstrap_token="token",
+            ig_user_id=ACCOUNT,
+        )
+
+        with pytest.raises(ConfigError, match="cannot serve"):
+            build_context(config, dry_run=False)
+
+    def test_dry_run_is_allowed_without_one(self, tmp_path):
+        from autogram.config import Config
+        from autogram.run import build_context
+
+        config = Config(
+            authoring_dsn=f"local://{tmp_path}",
+            serving_dsn=f"local://{tmp_path}",
+            ig_bootstrap_token="token",
+            ig_user_id=ACCOUNT,
+        )
+
+        assert build_context(config, dry_run=True) is not None
