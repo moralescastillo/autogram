@@ -1,6 +1,7 @@
 # Autogram — Design
 
-Status: **draft for review**. Nothing here is built yet.
+Status: **implemented**. This document and the code are kept in step; where
+implementation proved a decision wrong, the decision was changed here too.
 Date: 2026-09-09
 
 A public, forkable tool that publishes content to an Instagram Business or
@@ -105,6 +106,21 @@ Listed so they are not silently assumed:
 
 The Action is stateless. All state lives in the user's storage. This is what
 makes the fork disposable and keeps the repository clean.
+
+**The order of a run**, which carries most of the safety properties:
+
+1. Load config, storage and the posting policy.
+2. Load the token; refresh it when due. A dead token stops everything.
+3. **Resolve any unfinished publish** (§8.1.1) — before scheduling, because
+   recovering a published post writes the ledger, and the ledger is what tells
+   the scheduler whether today's slot is already used.
+4. Publish anything in `now/`, ignoring cadence.
+5. Otherwise ask the scheduler whether a queued post is due, and publish one.
+
+Within a publish, the pending marker is written **as soon as the final
+container exists — before waiting on it**, not before publishing. The wait can
+run fifteen minutes, which is exactly where a runner timeout lands; a marker
+written after it would protect nothing.
 
 ---
 
@@ -687,9 +703,11 @@ their storage app, on whatever device they have.
 1. **Should the tool create the folder structure on Drive, or expect the user
    to?** Depends on the `drive.file` scope question in §2.2. Tool-created is
    better for plug-and-play and for keeping the OAuth scope narrow.
-2. **Should a failed post block the queue** (nothing publishes until it is
-   fixed, preserving order) **or be skipped** (the next post goes out on time)?
-   Current draft retries and does not block.
+2. ~~Should a failed post block the queue or be skipped?~~ **Resolved:
+   skipped.** A broken post keeps its place in the folder and is retried, but
+   it does not stop the posts behind it — one typo silently halting a feed is
+   a worse failure than a post going out of order. The user learns about it
+   from an `error.txt` and a failed run.
 3. **How long should `published/` retain content** before archival or deletion?
    Currently forever.
 4. **Repository name.** `autogram` is the working directory name.

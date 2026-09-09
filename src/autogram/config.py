@@ -99,11 +99,10 @@ def parse_storage(raw: str) -> tuple[str, str]:
         return authoring, serving
 
     if not SCHEMES[_scheme(authoring)]["serving"]:
-        raise ConfigError(
-            f"{_scheme(authoring)} cannot serve media to Instagram, and no "
-            "serving backend was given. Add a gs:// or s3:// connection "
-            "string on a second line of AUTOGRAM_STORAGE."
-        )
+        # Not fatal here: `autogram run --dry-run` can still validate content
+        # with no serving backend, and the run itself refuses to publish.
+        return authoring, authoring
+
     return authoring, authoring
 
 

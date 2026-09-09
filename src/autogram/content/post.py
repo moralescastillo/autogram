@@ -224,11 +224,17 @@ def build(folder: str, media_paths: list[str], post_md: str | None, *, immediate
     )
 
 
-def discover(storage, root: str, *, immediate: bool = False) -> list[Post]:
+def discover(
+    storage, root: str, *, immediate: bool = False, on_error=None
+) -> list[Post]:
     """Find posts under ``root``, in folder-name order.
 
     Cheap by design: this lists folders and reads only ``post.md``. Media bytes
     are downloaded later, and only for the post about to be published.
+
+    A folder whose ``post.md`` cannot be read is reported through ``on_error``
+    and skipped. One typo must not hide every post behind it — that would be a
+    silent, confusing outage.
     """
     posts = []
 
@@ -256,8 +262,12 @@ def discover(storage, root: str, *, immediate: bool = False) -> list[Post]:
 
         try:
             post = build(entry.path, media_paths, post_md, immediate=immediate)
-        except PostError:
-            raise
+        except PostError as exc:
+            if on_error is None:
+                raise
+            on_error(entry.path, exc)
+            continue
+
         if cover and not post.cover:
             post.cover = cover
 

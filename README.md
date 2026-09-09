@@ -3,8 +3,10 @@
 Schedule and publish content to an Instagram Business or Creator account from
 your own cloud storage, using GitHub Actions as the scheduler.
 
-**Status: in development.** The design is settled ([`docs/DESIGN.md`](docs/DESIGN.md));
-the implementation is not written yet.
+**Status: complete, awaiting its first live run.** Every component is built and
+tested against real storage and a real S3 implementation, with Instagram's HTTP
+faked. Nothing has yet published to a live account — see
+[`docs/SETUP.md`](docs/SETUP.md) to be the first.
 
 ## What it does
 
