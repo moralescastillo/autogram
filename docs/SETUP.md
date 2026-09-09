@@ -5,8 +5,7 @@ the real cost and no tool can remove them — they are Meta's and Google's
 requirements, not this project's.
 
 > **Status:** skeleton. Exact console click-paths are filled in once the
-> implementation is verified against the live APIs. Several details below are
-> marked *to verify* rather than guessed at.
+> implementation is verified against the live APIs.
 
 ---
 
@@ -26,12 +25,25 @@ Page** — a real simplification over the older path.
 
 1. Go to <https://developers.facebook.com/apps> and create an app
 2. Add the **Instagram** product
-3. Add your Instagram account as an **Instagram Tester** and accept the
-   invitation from your Instagram account settings
+3. Connect your Instagram professional account
+4. **Leave the app in Development mode.** Do not submit it for App Review.
 
-> *To verify:* whether the tester role permits publishing without Meta App
-> Review. If review turns out to be required even for your own account, this
-> document will say so plainly rather than leave you to discover it.
+### You do not need App Review
+
+This surprises people, so to be clear about why.
+
+Meta gives every app *Standard Access* automatically, and Standard Access
+covers any account holding a role on the app. You created the app, so you are
+its Administrator — which means you can publish to your own Instagram account
+straight away, with no review and no waiting.
+
+App Review and Business Verification are for publishing on behalf of *other
+people's* accounts. Because you run your own app against your own account, that
+never applies. It is the reason this project asks you to make your own app
+rather than sharing one: the two-to-four week review queue is skipped entirely.
+
+The one practical limit: Instagram allows 100 published posts per rolling 24
+hours. A carousel counts as one.
 
 ## 2. Generate a long-lived token
 

@@ -48,6 +48,8 @@ sources. Two findings changed the design materially.
 | Reels: 9:16, H.264/HEVC, up to 100MB / 15 min | Validation rule. |
 | Rate limit: 100 published posts per rolling 24h; carousel counts as one | Far above any realistic cadence. Not a design concern. |
 | Scopes: `instagram_business_basic`, `instagram_business_content_publish` | Setup instructions. |
+| **No App Review is needed to publish to your own account.** Meta's *Standard Access* is granted automatically and covers accounts holding a role on the app (Administrator, Developer, Tester); an app in Development mode may request permissions from those users at standard or advanced access level | Verified 2026-09-09 against Meta's App Modes, App Roles and Permissions docs. This is what makes plug-and-play real — see §10.1. |
+| **Advanced Access** — needed to publish for accounts *without* a role on the app — requires App Review and Business Verification | Only relevant if someone runs Autogram as a hosted service for others. Out of scope (§11). |
 | **Long-lived tokens expire in 60 days and must be refreshed** while still valid; a token unrefreshed for 60 days is dead permanently | Drives §4 entirely. Refresh requires the token be ≥24h old. |
 | GitHub Actions disables scheduled workflows after 60 days of repository inactivity on public repos; **only commits reliably reset the clock** | Drives §7.4. |
 | GCS supports HMAC keys usable with S3-compatible clients against `storage.googleapis.com` | Keeps GCS config to one string, no service-account JSON. |
@@ -60,11 +62,6 @@ Listed so they are not silently assumed:
 
 - **Current Graph API version.** Meta's docs show `v25.0`; secondary sources
   say `v26.0`. Configurable, with the verified value as default.
-- **Instagram Tester role in development mode.** The expectation is that a user
-  can add their own account as a tester and publish without App Review. This
-  needs confirming against Meta's current policy — it is the single biggest
-  risk to "plug and play". If it turns out App Review is required even for
-  self-use, onboarding gains a review step and that must be documented honestly.
 - **Signed URL compatibility.** Whether Meta's fetcher accepts GCS V4 presigned
   URLs generated via HMAC, and whether the `GoogleAccessId` parameter swap is
   needed. Fallback: temporarily public objects, deleted after publish.
@@ -498,11 +495,50 @@ Note on the legacy code: two Graph clients on two API versions existed
 
 ## 10. Onboarding
 
-The honest version of "plug and play". Steps 1–3 are the real cost, and no
-design can remove them — they are Meta's requirements.
+### 10.1 Why no App Review is needed — the key finding
 
-1. Create a Meta app, add the Instagram product, add your account as a tester
-   *(pending §2.2 verification)*
+The plug-and-play claim rests entirely on this, so it is worth stating
+precisely. Verified 2026-09-09 against Meta's own documentation.
+
+Meta grants every app **Standard Access** automatically. Standard Access covers
+**only accounts that hold a role on the app** — Administrator, Developer, or
+Tester. An app in Development mode "can request permissions from role users, and
+only permissions with standard or advanced access levels," and Administrators,
+Developers and Testers "can grant the app any permission while it is in
+development."
+
+The consequence, and it is a good one:
+
+> **Each user creates their own Meta app, holds the Administrator role on it by
+> definition, and publishes to their own Instagram account with no App Review
+> at all.**
+
+Because every user runs their own app against their own account, nobody ever
+needs **Advanced Access** — which is what requires App Review, Business
+Verification, and a 2–4 week wait. This is a direct consequence of the
+fork-per-user architecture: there is no shared app, so there is no shared
+review.
+
+**The boundary, so nobody trips over it:** Advanced Access becomes necessary
+only if an app publishes for accounts that hold no role on it — that is, if
+somebody ran Autogram as a hosted service for other people. That is explicitly
+out of scope (§11). Forking is what keeps every user on the free side of this
+line.
+
+**Known constraints on Standard Access:** rate limits are tighter than Advanced
+Access. Meta's publishing limit of 100 posts per rolling 24 hours is far above
+any realistic cadence, so this does not bind in practice — but a user posting
+at industrial volume would notice.
+
+### 10.2 The steps
+
+
+The honest version of "plug and play". Steps 1–3 are the real cost, and no
+design can remove them — they are Meta's and Google's requirements, not this
+project's.
+
+1. Create a Meta app and add the Instagram product. Leave it in **Development
+   mode** — you are its Administrator, so no App Review is needed (§10.1)
 2. Generate a long-lived token with `instagram_business_basic` and
    `instagram_business_content_publish`
 3. Create storage: a Google Drive folder plus an OAuth refresh token, and a
