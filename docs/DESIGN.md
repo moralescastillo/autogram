@@ -141,6 +141,19 @@ security smell and an onboarding burden.
 Because the workflow runs hourly, a 7-day window gives roughly 168 chances to
 refresh before expiry. Any single failure is harmless.
 
+**The unknown-age problem.** A bootstrap token's age cannot be read from the
+token itself — it may have been minted a minute or seven weeks ago. So seeding
+assumes 60 days and marks the record *unconfirmed*; once the token is old
+enough for Meta to accept a refresh (24 hours), the next run refreshes it
+regardless of how distant expiry looks, replacing the assumption with an exact
+lifetime. The only case this loses is a bootstrap already near expiry, and it
+loses loudly: the run fails and GitHub emails the user.
+
+**Recovering from a dead token.** The stored record keeps a fingerprint of the
+bootstrap secret it came from. Pasting a new secret into GitHub changes the
+fingerprint, and the next run reseeds from it — so a user recovers by editing
+one secret, never by hand-editing files in their Drive.
+
 **Warning threshold.** If a token is within 7 days of expiry *and* refresh has
 failed, that is logged as an error and written to `state/log/` — the user finds
 out before a post is missed, not after.
@@ -518,11 +531,17 @@ two-step handshake behind a single method.
 
 ### 8.2 Logs
 
-`state/log/YYYY-MM.jsonl` — one JSON object per run. Machine-readable by
+`state/log/YYYY-MM.jsonl` — one JSON object per **event**. Machine-readable by
 design, so a separate tool can pick it up for email reporting without this
 codebase knowing anything about email. (The legacy system embedded SMTP
 credentials in source, and they leaked. This design keeps notification out of
 the tool entirely.)
+
+Events, not runs: the workflow runs hourly, so a record per run would be 700+
+"nothing to do" lines a month burying the handful that matter. Only things that
+happened are recorded — `published`, `failed`, `retry_later`, `recovered`,
+`token_refreshed`, `token_warning`. The per-run trace already exists free in
+the Actions log.
 
 ```json
 {"ts":"2026-09-20T14:00:00Z","event":"published","post":"2026-09-20-lisbon-run","type":"carousel","media_id":"178..."}
