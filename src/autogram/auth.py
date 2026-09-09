@@ -19,6 +19,12 @@ log = logging.getLogger(__name__)
 
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
+INSTAGRAM_SCOPES = ["instagram_business_basic", "instagram_business_content_publish"]
+
+INSTAGRAM_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize"
+INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
+INSTAGRAM_GRAPH = "https://graph.instagram.com"
+
 
 class AuthError(Exception):
     """Setup could not complete. The message is written for the user."""
@@ -114,3 +120,118 @@ def verify(dsn: str) -> str:
     if folders:
         summary += f" Folders: {', '.join(sorted(folders)[:5])}"
     return summary
+
+
+def instagram_authorize_url(client_id: str, redirect_uri: str) -> str:
+    """The URL a user visits to authorise the app."""
+    from urllib.parse import urlencode
+
+    return f"{INSTAGRAM_AUTHORIZE_URL}?" + urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": ",".join(INSTAGRAM_SCOPES),
+        }
+    )
+
+
+def instagram_exchange(
+    client_id: str, client_secret: str, code: str, redirect_uri: str
+) -> tuple[str, str]:
+    """Turn an authorization code into a long-lived token and the user id.
+
+    Three steps, because Instagram makes it three: the code buys a token that
+    lasts an hour, which must then be exchanged for the 60-day one Autogram
+    actually stores.
+    """
+    import requests
+
+    # Instagram appends "#_" to the redirected URL; pasting it verbatim is the
+    # obvious thing to do, so accept it rather than failing on it.
+    code = code.strip().removesuffix("#_")
+
+    short = requests.post(
+        INSTAGRAM_TOKEN_URL,
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code": code,
+        },
+        timeout=30,
+    )
+    payload = _json_or_error(short, "exchanging the authorization code")
+
+    short_token = payload.get("access_token")
+    user_id = str(payload.get("user_id") or "")
+    if not short_token:
+        raise AuthError(f"No access token in Instagram's response: {payload!r}")
+
+    long = requests.get(
+        f"{INSTAGRAM_GRAPH}/access_token",
+        params={
+            "grant_type": "ig_exchange_token",
+            "client_secret": client_secret,
+            "access_token": short_token,
+        },
+        timeout=30,
+    )
+    payload = _json_or_error(long, "exchanging for a long-lived token")
+
+    token = payload.get("access_token")
+    if not token:
+        raise AuthError(f"No long-lived token in Instagram's response: {payload!r}")
+
+    if not user_id:
+        user_id = instagram_user_id(token)
+
+    return token, user_id
+
+
+def instagram_user_id(access_token: str) -> str:
+    """Ask Instagram which account a token belongs to."""
+    import requests
+
+    response = requests.get(
+        f"{INSTAGRAM_GRAPH}/me",
+        params={"fields": "user_id,username", "access_token": access_token},
+        timeout=30,
+    )
+    payload = _json_or_error(response, "looking up the account")
+    return str(payload.get("user_id") or payload.get("id") or "")
+
+
+def instagram_check(access_token: str) -> dict:
+    """Confirm a token works and say whose account it is."""
+    import requests
+
+    response = requests.get(
+        f"{INSTAGRAM_GRAPH}/me",
+        params={"fields": "user_id,username", "access_token": access_token},
+        timeout=30,
+    )
+    return _json_or_error(response, "checking the token")
+
+
+def _json_or_error(response, what: str) -> dict:
+    try:
+        payload = response.json()
+    except ValueError:
+        raise AuthError(
+            f"Instagram returned something unreadable while {what} "
+            f"(HTTP {response.status_code})."
+        ) from None
+
+    if not response.ok or "error" in payload:
+        error = payload.get("error") or payload.get("error_message") or payload
+        if isinstance(error, dict):
+            detail = error.get("message", str(error))
+            hint = ""
+            if error.get("code") == 190:
+                hint = " The authorization code may have expired — they last one hour and work only once."
+            raise AuthError(f"Instagram rejected the request while {what}: {detail}.{hint}")
+        raise AuthError(f"Instagram rejected the request while {what}: {error}")
+
+    return payload

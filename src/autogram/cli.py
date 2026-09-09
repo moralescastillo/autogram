@@ -68,12 +68,87 @@ def build_parser() -> argparse.ArgumentParser:
         help="Port for the local callback server. Default: any free port.",
     )
 
+    instagram = auth_sub.add_parser(
+        "instagram",
+        help="Turn an Instagram authorization code into a long-lived token.",
+        description=(
+            "Exchanges an authorization code for the 60-day token Autogram "
+            "stores, and reports the account it belongs to. Run without --code "
+            "to print the URL to visit first. If your app dashboard offers a "
+            "'Generate token' button, use that instead and check the result "
+            "with 'autogram auth instagram --token <token>'."
+        ),
+    )
+    instagram.add_argument("--client-id", help="Instagram app ID.")
+    instagram.add_argument("--client-secret", help="Instagram app secret.")
+    instagram.add_argument(
+        "--redirect-uri",
+        help="A redirect URI configured on the app. Must match exactly.",
+    )
+    instagram.add_argument(
+        "--code", help="The code from the redirect URL after you authorise."
+    )
+    instagram.add_argument(
+        "--token",
+        help="Check an existing long-lived token instead of exchanging a code.",
+    )
+
     verify = auth_sub.add_parser(
         "verify", help="Check a connection string works before relying on it."
     )
     verify.add_argument("dsn", help="The connection string to test.")
 
     return parser
+
+
+def _instagram_auth(args) -> int:
+    from autogram.auth import (
+        AuthError,
+        instagram_authorize_url,
+        instagram_check,
+        instagram_exchange,
+    )
+
+    if args.token:
+        account = instagram_check(args.token)
+        print(f"\nToken works — @{account.get('username', '?')}\n")
+        print("Add these as GitHub secrets:\n")
+        print(f"  AUTOGRAM_IG_TOKEN     {args.token}")
+        print(f"  AUTOGRAM_IG_USER_ID   {account.get('user_id') or account.get('id')}\n")
+        return 0
+
+    missing = [
+        name
+        for name in ("client_id", "client_secret", "redirect_uri")
+        if not getattr(args, name)
+    ]
+    if missing:
+        raise AuthError(
+            "Need --client-id, --client-secret and --redirect-uri "
+            f"(missing: {', '.join('--' + m.replace('_', '-') for m in missing)})."
+        )
+
+    if not args.code:
+        # Without a code there is nothing to exchange, so hand over the URL
+        # that produces one rather than failing.
+        print("\n1. Open this URL and authorise the app:\n")
+        print(f"   {instagram_authorize_url(args.client_id, args.redirect_uri)}\n")
+        print("2. You will be redirected to a URL containing '?code=...'.")
+        print("   Copy that code — it lasts one hour and works only once.\n")
+        print("3. Run this command again with --code <the code>\n")
+        return 0
+
+    token, user_id = instagram_exchange(
+        args.client_id, args.client_secret, args.code, args.redirect_uri
+    )
+    account = instagram_check(token)
+
+    print(f"\nAuthorised as @{account.get('username', '?')}\n")
+    print("Add these as GitHub secrets:\n")
+    print(f"  AUTOGRAM_IG_TOKEN     {token}")
+    print(f"  AUTOGRAM_IG_USER_ID   {user_id}\n")
+    print("The token lasts 60 days; Autogram refreshes it for you from here on.\n")
+    return 0
 
 
 def _run_auth(args) -> int:
@@ -97,6 +172,9 @@ def _run_auth(args) -> int:
                 "revoke it at https://myaccount.google.com/permissions\n"
             )
             return 0
+
+        if args.provider == "instagram":
+            return _instagram_auth(args)
 
         if args.provider == "verify":
             print(verify(args.dsn))

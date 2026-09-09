@@ -118,3 +118,110 @@ class TestConnectionStringAssembly:
 
         with pytest.raises(AuthError, match="port already in use"):
             gdrive("id", "secret", "folder")
+
+
+class TestInstagramAuth:
+    def test_authorize_url_requests_publishing_scope(self):
+        from autogram.auth import instagram_authorize_url
+
+        url = instagram_authorize_url("12345", "https://example.com/cb")
+
+        assert url.startswith("https://www.instagram.com/oauth/authorize?")
+        assert "instagram_business_content_publish" in url
+        assert "instagram_business_basic" in url
+        assert "response_type=code" in url
+
+    def test_exchange_returns_long_lived_token_and_user_id(self, monkeypatch):
+        posted, fetched = {}, {}
+
+        class Resp:
+            def __init__(self, payload, ok=True):
+                self._p, self.ok, self.status_code = payload, ok, 200 if ok else 400
+
+            def json(self):
+                return self._p
+
+        def fake_post(url, data=None, timeout=None):
+            posted.update(data)
+            return Resp({"access_token": "SHORT", "user_id": 17841400000000000})
+
+        def fake_get(url, params=None, timeout=None):
+            fetched.update(params)
+            if "access_token" in url:
+                return Resp({"access_token": "LONG-LIVED", "expires_in": 5184000})
+            return Resp({"user_id": "17841400000000000", "username": "me"})
+
+        import requests
+
+        monkeypatch.setattr(requests, "post", fake_post)
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        from autogram.auth import instagram_exchange
+
+        token, user_id = instagram_exchange("id", "secret", "CODE", "https://cb")
+
+        assert token == "LONG-LIVED"
+        assert user_id == "17841400000000000"
+        assert posted["grant_type"] == "authorization_code"
+        assert fetched["grant_type"] == "ig_exchange_token"
+
+    def test_trailing_hash_in_pasted_code_is_tolerated(self, monkeypatch):
+        # Instagram appends "#_" to the redirect; pasting it verbatim is the
+        # obvious thing to do and must not fail.
+        seen = {}
+
+        class Resp:
+            ok, status_code = True, 200
+
+            def __init__(self, payload):
+                self._p = payload
+
+            def json(self):
+                return self._p
+
+        import requests
+
+        monkeypatch.setattr(
+            requests, "post",
+            lambda url, data=None, timeout=None: (
+                seen.update(data), Resp({"access_token": "S", "user_id": 1})
+            )[1],
+        )
+        monkeypatch.setattr(
+            requests, "get",
+            lambda url, params=None, timeout=None: Resp({"access_token": "L"}),
+        )
+
+        from autogram.auth import instagram_exchange
+
+        instagram_exchange("id", "secret", "ABC123#_", "https://cb")
+        assert seen["code"] == "ABC123"
+
+    def test_expired_code_explains_itself(self, monkeypatch):
+        class Resp:
+            ok, status_code = False, 400
+
+            def json(self):
+                return {"error": {"message": "Invalid code", "code": 190}}
+
+        import requests
+
+        monkeypatch.setattr(requests, "post", lambda *a, **k: Resp())
+
+        from autogram.auth import AuthError, instagram_exchange
+
+        with pytest.raises(AuthError, match="expired"):
+            instagram_exchange("id", "secret", "STALE", "https://cb")
+
+    def test_cli_accepts_the_instagram_flow(self):
+        args = build_parser().parse_args([
+            "auth", "instagram",
+            "--client-id", "123", "--client-secret", "s",
+            "--redirect-uri", "https://cb", "--code", "ABC",
+        ])
+        assert args.provider == "instagram"
+        assert args.code == "ABC"
+
+    def test_cli_accepts_token_check(self):
+        args = build_parser().parse_args(["auth", "instagram", "--token", "IGQ..."])
+        assert args.token == "IGQ..."

@@ -47,19 +47,62 @@ hours. A carousel counts as one.
 
 ## 2. Generate a long-lived token
 
-Request these scopes:
+You need a token with these scopes:
 
 - `instagram_business_basic`
 - `instagram_business_content_publish`
 
-Exchange the short-lived token for a long-lived one. Keep it — it goes into
-GitHub in step 5.
+There are two routes. **Try the first — it is two clicks.**
 
-**You do not need to renew this by hand.** Long-lived tokens expire after 60
-days, and Autogram refreshes yours automatically well before then, storing the
-current one in your storage rather than in GitHub.
+### Route A: the app dashboard
 
-You also need your **Instagram user ID** (a long number, not your @handle).
+In your app: *Instagram* → *API setup with Instagram business login*. If there
+is a **Generate token** button, use it. It produces a long-lived (60-day) token
+directly, with no OAuth flow at all.
+
+Then confirm it and find your user ID in one step:
+
+```bash
+autogram auth instagram --token "<the token>"
+```
+
+It prints the account name and both secrets, ready to paste.
+
+### Route B: the OAuth flow
+
+If your dashboard has no such button, exchange an authorization code instead.
+Add a **redirect URI** to the app first (any HTTPS URL you control — it only
+has to receive the code; `https://localhost/` often works).
+
+```bash
+autogram auth instagram \
+  --client-id     <app id> \
+  --client-secret <app secret> \
+  --redirect-uri  <the URI you configured>
+```
+
+That prints a URL. Open it, authorise, and you land on your redirect URI with
+`?code=...` in the address bar. Copy the code and run the same command again
+with `--code <that code>`.
+
+> The code lasts **one hour and works only once**. If you get "Invalid code",
+> just start the URL step again — nothing is broken.
+>
+> Instagram appends `#_` to the redirected URL. Pasting it is harmless; the
+> command strips it.
+
+Either route gives you the two values for step 5.
+
+**You will never renew this by hand.** Long-lived tokens expire after 60 days,
+and Autogram refreshes yours well before then, keeping the current one in your
+storage rather than in GitHub.
+
+### Coming from an older Facebook-Login setup?
+
+A token issued for `graph.facebook.com` with a linked Page **will not work
+here** — this is a different API on a different host. Generate a new one with
+the steps above. Your Facebook Page ID is not your Instagram user ID either;
+the commands above return the right value.
 
 ## 3. Set up storage
 
