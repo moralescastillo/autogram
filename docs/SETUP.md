@@ -25,8 +25,29 @@ Page** — a real simplification over the older path.
 
 1. Go to <https://developers.facebook.com/apps> and create an app
 2. Add the **Instagram** product
-3. Connect your Instagram professional account
-4. **Leave the app in Development mode.** Do not submit it for App Review.
+3. **Add your Instagram account as an Instagram Tester.** In the dashboard:
+   *App roles* → *Roles* → *Add People* → under **Additional roles for this
+   app** tick **Instagram Tester** → enter your Instagram username (no `@`).
+4. **Accept the invitation** — and this is the step that catches people:
+
+   > Open **<https://www.instagram.com/accounts/manage_access/>** in a
+   > **desktop web browser**, logged in as that account, and accept under
+   > **Tester Invites**.
+   >
+   > The Instagram *mobile app* does not reliably show tester invites. If you
+   > cannot find them on your phone, that is why — use desktop web.
+
+   Until this is accepted the role stays *Pending* and authorising fails with
+   **"Insufficient developer role"**.
+5. **Leave the app in Development mode.** Do not submit it for App Review.
+
+### Why a Tester role when you own the app
+
+Your Administrator role is held by your *Facebook* user. Under Instagram Login
+the *Instagram account* is a separate identity and needs its own role on the
+app — being the app's owner does not grant it. This trips up almost everyone
+coming from the older Facebook Login path, where the Page relationship covered
+it.
 
 ### You do not need App Review
 
@@ -71,8 +92,20 @@ It prints the account name and both secrets, ready to paste.
 ### Route B: the OAuth flow
 
 If your dashboard has no such button, exchange an authorization code instead.
-Add a **redirect URI** to the app first (any HTTPS URL you control — it only
-has to receive the code; `https://localhost/` often works).
+
+Add a **redirect URI** to the app first. Use exactly:
+
+```
+https://localhost/
+```
+
+Confirmed working, 2026-09. The page will not load when Instagram redirects you
+there, and that is fine — nothing is listening. You only need to read the
+`?code=...` out of your browser's address bar.
+
+> **The URI must match character for character** between the app dashboard and
+> `--redirect-uri`, trailing slash included. A mismatch fails at the authorise
+> step with `invalid redirect_uri`.
 
 ```bash
 autogram auth instagram \

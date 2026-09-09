@@ -639,9 +639,16 @@ development."
 
 The consequence, and it is a good one:
 
-> **Each user creates their own Meta app, holds the Administrator role on it by
-> definition, and publishes to their own Instagram account with no App Review
-> at all.**
+> **Each user creates their own Meta app, grants their Instagram account a role
+> on it, and publishes with no App Review at all.**
+
+**One subtlety, confirmed the hard way.** Holding the Administrator role is not
+sufficient on its own: that role belongs to the *Facebook user*, while under
+Instagram Login the *Instagram account* is a separate identity that needs its
+own **Instagram Tester** role — added in the dashboard and then accepted from
+the Instagram account itself. Authorising before that fails with "Insufficient
+developer role". The invitation is only reliably visible on Instagram's
+**desktop web** interface, not in the mobile app.
 
 Because every user runs their own app against their own account, nobody ever
 needs **Advanced Access** — which is what requires App Review, Business
