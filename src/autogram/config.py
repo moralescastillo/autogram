@@ -17,11 +17,24 @@ import os
 from dataclasses import dataclass
 
 #: Recognised connection-string schemes and whether they can serve media.
+#:
+#: Expected shapes::
+#:
+#:     gdrive://<client_id>:<client_secret>:<refresh_token>@<folder_id>
+#:     gs://<access_key>:<secret>@<bucket>/<prefix>
+#:     s3://<access_key>:<secret>@<bucket>/<prefix>
+#:     dropbox://<refresh_token>@<root_path>
+#:
+#: Drive needs the client id and secret as well as the refresh token: Google
+#: will not exchange a refresh token for an access token without the
+#: credentials of the OAuth client that issued it.
 SCHEMES = {
     "gdrive": {"authoring": True, "serving": False},
     "dropbox": {"authoring": True, "serving": False},
     "gs": {"authoring": True, "serving": True},
     "s3": {"authoring": True, "serving": True},
+    # Development and testing only: Instagram cannot fetch from a local disk.
+    "local": {"authoring": True, "serving": False},
 }
 
 

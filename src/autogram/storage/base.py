@@ -40,6 +40,10 @@ class Storage(ABC):
     (DESIGN.md §6.2.2) and must not require any other configuration.
     """
 
+    #: Whether this backend can hand Instagram a fetchable URL. Serving
+    #: backends set this True and implement ``fetchable_url``.
+    can_serve: bool = False
+
     # --- authoring -----------------------------------------------------
 
     @abstractmethod
@@ -76,7 +80,3 @@ class Storage(ABC):
             "Configure a serving backend (GCS or S3) alongside it."
         )
 
-    @property
-    def can_serve(self) -> bool:
-        """Whether this backend can hand Instagram a fetchable URL."""
-        return type(self).fetchable_url is not Storage.fetchable_url

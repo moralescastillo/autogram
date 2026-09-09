@@ -54,7 +54,9 @@ sources. Two findings changed the design materially.
 | GitHub Actions disables scheduled workflows after 60 days of repository inactivity on public repos; **only commits reliably reset the clock** | Drives §7.4. |
 | GCS supports HMAC keys usable with S3-compatible clients against `storage.googleapis.com` | Keeps GCS config to one string, no service-account JSON. |
 | **Google Drive service accounts have zero storage quota** and cannot upload, even into a folder you own | Drive must use OAuth with a refresh token — which is one string, not a JSON blob. This reverses an earlier assumption in this design. |
-| A Google OAuth app left in "testing" status expires refresh tokens after **7 days** | The app must be set to "in production" — a status toggle, not a review, for personal scopes. Must be prominent in setup docs. |
+| A Google OAuth app left in "testing" status expires refresh tokens after **7 days** | The app must be set to "in production". Must be prominent in setup docs. |
+| **Drive needs the full `drive` scope, not `drive.file`.** `drive.file` only covers files the app itself created or the user picked through Google's Picker UI — folders made by hand in the Drive mobile app are invisible to it | Verified 2026-09-09. Since authoring by hand on a phone *is* the workflow, the narrow scope cannot work. See §6.2.1. |
+| `drive` is a **restricted** scope: an unverified app using it is capped at 100 users lifetime, and verification would require a CASA security assessment | Harmless here — each user runs their own app for themselves, so the cap is never approached. It does mean each user clicks through an "unverified app" warning once. Google names personal use as an explicit exception to verification. |
 
 ### 2.2 To verify during implementation
 
@@ -65,11 +67,6 @@ Listed so they are not silently assumed:
 - **Signed URL compatibility.** Whether Meta's fetcher accepts GCS V4 presigned
   URLs generated via HMAC, and whether the `GoogleAccessId` parameter swap is
   needed. Fallback: temporarily public objects, deleted after publish.
-- **Drive OAuth scope.** Whether `drive.file` (access only to files the app
-  touches) is sufficient, or whether full `drive` scope is needed to see
-  folders the user created by hand. `drive.file` is strongly preferred — it
-  limits the tool to its own folder. This likely decides whether the user
-  creates the folder structure through the tool or by hand.
 - **Whether `gh workflow enable` resets the inactivity clock**, which would
   avoid keepalive commits entirely.
 
@@ -322,7 +319,7 @@ scopes. This is the most likely setup mistake and belongs in bold in `SETUP.md`.
 One secret, `AUTOGRAM_STORAGE`, holds one or two connection strings:
 
 ```
-gdrive://<refresh_token>@<folder_id>
+gdrive://<client_id>:<client_secret>:<refresh_token>@<folder_id>
 gs://<access_key>:<secret>@<bucket>/<prefix>
 dropbox://<refresh_token>@<root_path>
 s3://<access_key>:<secret>@<bucket>/<prefix>

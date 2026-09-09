@@ -65,9 +65,21 @@ You also need your **Instagram user ID** (a long number, not your @handle).
 
 ### Google Drive — where you will work
 
-1. Create a folder in Drive for Autogram
-2. In Google Cloud Console, create an **OAuth client ID** of type *Desktop app*
-3. Generate a **refresh token** for it with the Drive scope
+1. Create a folder in Drive for Autogram. Its **folder ID** is the last part of
+   the URL when you open it: `drive.google.com/drive/folders/<folder_id>`
+2. In Google Cloud Console, create an **OAuth client ID** of type *Desktop app*.
+   Keep the **client ID** and **client secret**
+3. Generate a **refresh token** for it, requesting the
+   `https://www.googleapis.com/auth/drive` scope
+
+You need all three — client ID, client secret and refresh token. Google will
+not issue an access token from a refresh token without the credentials of the
+client that created it.
+
+**You will see an "unverified app" warning** when you authorise it. That is
+expected and correct: the app is yours, used only by you, and Google names
+personal use as an exception to its verification requirements. Click *Advanced*
+→ *Go to (your app)* to continue.
 
 > ### ⚠️ Set the OAuth app to "In production"
 >
@@ -75,8 +87,12 @@ You also need your **Instagram user ID** (a long number, not your @handle).
 > and your posting will stop dead about a week after setup.
 >
 > In Google Cloud Console → *APIs & Services* → *OAuth consent screen*, click
-> **Publish app**. For an app requesting only your own data this is a status
-> toggle, not a review process.
+> **Publish app**.
+>
+> You do **not** need to submit for verification. Publishing is a status
+> change; verification is a separate process you can ignore while you are the
+> only user. Your app stays capped at 100 users, which is 99 more than you
+> need.
 >
 > This is the single most common way to get this setup wrong.
 
@@ -119,7 +135,7 @@ repository secret**.
 serving backend on the second:
 
 ```
-gdrive://<refresh_token>@<folder_id>
+gdrive://<client_id>:<client_secret>:<refresh_token>@<folder_id>
 gs://<access_key>:<secret>@<bucket>/autogram
 ```
 

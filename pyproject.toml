@@ -11,13 +11,16 @@ dependencies = [
     "pyyaml",
     "boto3",                    # GCS via S3-compatible XML API, and S3 itself
     "google-api-python-client", # Drive
-    "google-auth-oauthlib",     # Drive OAuth refresh flow
+    "google-auth",              # Drive credentials and token refresh
+    "google-auth-oauthlib",     # one-time OAuth flow when minting a refresh token
     "pillow",                   # JPEG conversion (the one permitted transform)
     "pillow-heif",              # HEIC support — phones shoot HEIC
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+# moto gives the storage contract tests a real in-process S3 to run against,
+# so the object-store backend is exercised rather than mocked.
+dev = ["pytest", "ruff", "moto[s3]"]
 
 [project.scripts]
 autogram = "autogram.cli:main"
