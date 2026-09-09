@@ -6,5 +6,22 @@ until they report FINISHED (DESIGN.md §8.5).
 
 Uses the Instagram API with Instagram Login (``graph.instagram.com``), which
 needs no linked Facebook Page. Tokens are long-lived and expire after 60 days;
-refresh is handled in ``autogram.state.token``.
+the client can refresh them, while deciding *when* to belongs to
+``autogram.state``.
 """
+
+from autogram.instagram.client import (
+    ContainerStatus,
+    InstagramClient,
+    PublishedMedia,
+)
+from autogram.instagram.errors import Disposition, InstagramError, MediaNotReady
+
+__all__ = [
+    "ContainerStatus",
+    "Disposition",
+    "InstagramClient",
+    "InstagramError",
+    "MediaNotReady",
+    "PublishedMedia",
+]

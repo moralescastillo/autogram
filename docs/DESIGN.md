@@ -62,8 +62,9 @@ sources. Two findings changed the design materially.
 
 Listed so they are not silently assumed:
 
-- **Current Graph API version.** Meta's docs show `v25.0`; secondary sources
-  say `v26.0`. Configurable, with the verified value as default.
+- **Current Graph API version.** Meta's docs show `v25.0`, which is the
+  default; it is configurable, so a bump is a one-line change. Worth
+  confirming against Meta's changelog before the first live run.
 - **Signed URL compatibility.** Whether Meta's fetcher accepts GCS V4 presigned
   URLs generated via HMAC, and whether the `GoogleAccessId` parameter swap is
   needed. Fallback: temporarily public objects, deleted after publish.
@@ -421,6 +422,27 @@ with no locking — fine for one nightly job, unsafe for anything concurrent.
 `state/published.json`, in storage. Records what was published and when.
 Checked before every publish, which is what makes runs idempotent and retries
 safe.
+
+### 8.1.1 The crash window
+
+The ledger stops a *completed* publish being repeated. It does not by itself
+stop a duplicate when a run dies between Instagram accepting the post and the
+ledger being written — a real possibility on a runner that hits its timeout
+mid-publish.
+
+The container id closes that window. Before calling ``media_publish`` the
+pipeline records the container id; if a later run finds one recorded, it asks
+Instagram what became of it:
+
+| Status | Meaning | Action |
+|---|---|---|
+| `PUBLISHED` | It went out; only the bookkeeping was lost | Record it, retire the post, do **not** publish again |
+| `FINISHED` | Ready but never published | Publish it |
+| `ERROR` / `EXPIRED` | Never going to work | Fail the post, start over |
+
+This is what `status_code` is for, and it is why the client returns container
+ids from every create call and takes one in `publish` rather than hiding the
+two-step handshake behind a single method.
 
 ### 8.2 Logs
 
