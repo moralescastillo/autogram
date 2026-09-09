@@ -403,15 +403,52 @@ schedule:
   window: "06:00-21:00"      # random time within this window
 ```
 
+**Grammar.** `cadence` is `daily`, `every N days` (N ≥ 1), or a comma-separated
+list of weekdays (full names or three-letter abbreviations, any case).
+`window` is `HH:MM-HH:MM` and must start before it ends — windows spanning
+midnight are not supported, since they make "which day is this slot on?"
+ambiguous. `timezone` is any IANA name.
+
+**Defaults**, when `autogram.yml` is absent or incomplete: post `daily`,
+between `09:00-21:00`, in `UTC`.
+
+**The interval anchor is the last publish**, not a fixed epoch. "Every 2 days"
+means two days since the last post, so the first post is due immediately and a
+missed day does not permanently shift the rhythm. Weekday cadences need no
+anchor.
+
+At most one post per eligible day.
+
 ### 7.2 Randomized posting times
 
-The workflow runs **hourly**. On each run it computes whether this is the hour
-to post, using a deterministic seed derived from the date and account. The same
-day always yields the same target hour, so a run cannot fire twice, and no
-state is needed to remember the decision.
+The workflow runs **hourly**, and each run decides for itself whether a post is
+due.
 
-The result is a post that lands at an unpredictable, human-looking time within
-the window while remaining fully reproducible and debuggable.
+The day's target time is derived from the date and the account id with SHA-256,
+mapped into the configured window. It is therefore stable — every run on a
+given day computes the same target without storing it — while still looking
+unpredictable from outside. Including the account id keeps two accounts on
+identical schedules from posting in lockstep. (Python's built-in `hash()` will
+not do: string hashing is randomised per process, so two runs on the same day
+would disagree.)
+
+**Why a run cannot simply check "is it the target hour?"** GitHub's scheduler
+fires late under load — by minutes, sometimes by an hour — and occasionally
+skips a tick entirely. An equality check would miss the slot and lose the post
+for the whole cycle. So the test has three parts:
+
+1. today is an eligible day, **and**
+2. the local clock is at or past today's target, **and**
+3. nothing has been published today yet
+
+The third part is why this needs the ledger's last-publish timestamp, and it is
+what makes lateness harmless: a run at 15:03 for a 14:37 target still publishes,
+and the run after it does not. An earlier draft of this design claimed no state
+was needed; that was wrong, and drift is the reason.
+
+All three are evaluated in the user's **local** date. A 23:30 UTC run is
+already tomorrow in Tokyo, and judging by the UTC date would skip a post that
+is genuinely due.
 
 ### 7.3 Immediate posting
 
