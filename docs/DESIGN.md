@@ -113,7 +113,8 @@ makes the fork disposable and keeps the repository clean.
 ## 4. Authentication and the token problem
 
 This is the hardest constraint in the design, and the one the legacy system
-never solved (README gap #1 — nothing refreshed the token).
+never solved: nothing in it ever refreshed the access token, so posting broke
+silently whenever the token lapsed.
 
 **The problem.** Long-lived Instagram tokens expire after 60 days. Refreshing
 returns a *new* token string. A GitHub Actions secret is the obvious place to
@@ -194,8 +195,9 @@ Renaming reorders. This works on any device.
 
 **Queue order** is folder-name sort, which is why the date prefix convention is
 suggested — but it is only a convention, not parsed for meaning. Unlike the
-legacy system, **no metadata is encoded in filenames** (README gap #6: filename
-parsing was load-bearing and a rename broke activity matching). The only thing
+legacy system, **no metadata is encoded in filenames**. Encoding data there
+made renaming dangerous: a file's name was parsed for meaning, so tidying up a
+filename silently broke the pipeline. The only thing
 a name controls is order.
 
 ### 5.2 `post.md`
@@ -410,7 +412,8 @@ concurrency:
 Video processing can exceed an hour, overlapping the next tick. Combined with
 the ledger check (§8.1) before each publish, this makes double-posting
 structurally impossible — a real improvement on the legacy Sheets approach,
-where a read-act-delete cycle with no locking would race (README gap #5).
+which used a spreadsheet as a queue and read, acted on, then deleted a row
+with no locking — fine for one nightly job, unsafe for anything concurrent.
 
 ---
 
@@ -488,8 +491,9 @@ autogram/
 Python, matching the legacy code and keeping the door open for the watermark
 project as a separate upstream step.
 
-Note on the legacy code: two Graph clients on two API versions existed
-(README gap #3). This design has exactly one client, one configurable version.
+Note on the legacy code: it accumulated two separate Graph clients pinned to
+two different API versions, which drifted apart. This design has exactly one
+client and one configurable version.
 
 ---
 

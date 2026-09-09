@@ -30,8 +30,12 @@ Supports single images, carousels, reels and stories.
 
 ## Getting started
 
-See [`docs/SETUP.md`](docs/SETUP.md). Budget about twenty minutes, nearly all of
-it in Meta's developer console.
+Fork this repository, then follow [`docs/SETUP.md`](docs/SETUP.md). Budget about
+twenty minutes, nearly all of it in Meta's developer console.
+
+**You do not need Meta App Review.** Because you run your own app against your
+own account, you are its administrator and can publish immediately — the two-to-
+four week review queue only applies to apps posting on behalf of other people.
 
 You will need:
 
