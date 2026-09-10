@@ -173,8 +173,12 @@ continue.
 > An app left in **Testing** status expires refresh tokens after **7 days**,
 > and your posting will stop dead about a week after setup.
 >
-> In Google Cloud Console → *APIs & Services* → *OAuth consent screen*, click
-> **Publish app**.
+> Google Cloud Console → *APIs & Services* → **Google Auth Platform** →
+> **Audience** → **Publish app**, so the status reads *In production*.
+>
+> Google renamed "OAuth consent screen" to "Google Auth Platform" and split it
+> into Branding / Audience / Data Access / Clients. Older guides point at a
+> page that no longer exists — the publish button lives under **Audience**.
 >
 > You do **not** need to submit for verification. Publishing is a status
 > change; verification is a separate process you can ignore while you are the
