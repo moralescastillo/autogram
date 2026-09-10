@@ -39,6 +39,44 @@ class DriveError(Exception):
     """Drive could not satisfy a request in a way the user should know about."""
 
 
+def _explain_refresh_failure(exc: Exception) -> str:
+    """Turn Google's terse OAuth errors into something actionable.
+
+    ``invalid_grant`` in particular means half a dozen different things and
+    Google says none of them, so the likely causes are listed by how often they
+    actually happen.
+    """
+    detail = str(exc)
+
+    if "invalid_grant" in detail:
+        return (
+            "Google rejected the Drive refresh token.\n\n"
+            "The usual causes, most likely first:\n\n"
+            "  1. The token was created while the OAuth app was still in "
+            "'Testing'. Those expire after 7 days and publishing the app "
+            "invalidates them. Confirm the app reads 'In production' under\n"
+            "     APIs & Services -> Google Auth Platform -> Audience,\n"
+            "     then run 'autogram auth gdrive ...' again for a fresh token.\n"
+            "  2. Access was revoked at https://myaccount.google.com/permissions\n"
+            "  3. The connection string is truncated or has a line break in it "
+            "-- it is one long line.\n"
+            "  4. The client id or secret does not match the client that "
+            "issued the token.\n\n"
+            f"Google's message: {detail}"
+        )
+
+    if "invalid_client" in detail:
+        return (
+            "Google did not recognise the OAuth client.\n\n"
+            "The client id or secret in the connection string does not match "
+            "an existing OAuth client. Check them in\n"
+            "  APIs & Services -> Credentials\n"
+            f"and re-run 'autogram auth gdrive ...'.\n\nGoogle's message: {detail}"
+        )
+
+    return f"Could not authenticate with Google Drive: {detail}"
+
+
 class GDriveStorage(Storage):
     def __init__(
         self, client_id: str, client_secret: str, refresh_token: str, root_folder_id: str
@@ -73,7 +111,12 @@ class GDriveStorage(Storage):
                 client_secret=self._client_secret,
                 scopes=SCOPES,
             )
-            credentials.refresh(Request())
+
+            try:
+                credentials.refresh(Request())
+            except Exception as exc:
+                raise DriveError(_explain_refresh_failure(exc)) from exc
+
             self._service = build(
                 "drive", "v3", credentials=credentials, cache_discovery=False
             )

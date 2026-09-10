@@ -111,9 +111,13 @@ def verify(dsn: str) -> str:
     at 3am inside a scheduled run.
     """
     from autogram.storage import from_dsn
+    from autogram.storage.gdrive import DriveError
 
     storage = from_dsn(dsn)
-    entries = storage.list("")
+    try:
+        entries = storage.list("")
+    except DriveError as exc:
+        raise AuthError(str(exc)) from exc
     folders = [e.path for e in entries if e.is_dir]
 
     summary = f"Connected. {len(entries)} item(s) at the root."

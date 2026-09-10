@@ -18,6 +18,7 @@ import sys
 
 from autogram import __version__
 from autogram.config import ConfigError
+from autogram.storage.gdrive import DriveError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -208,6 +209,11 @@ def main(argv: list[str] | None = None) -> int:
         # Configuration problems are the user's to fix, so they get a plain
         # message rather than a traceback.
         print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+    except DriveError as exc:
+        # Credential problems are the user's to fix too, and a stack trace
+        # tells them nothing about which of six causes it was.
+        print(f"\n{exc}\n", file=sys.stderr)
         return 2
 
     return 1
