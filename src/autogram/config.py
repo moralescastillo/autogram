@@ -106,6 +106,20 @@ def parse_storage(raw: str) -> tuple[str, str]:
     return authoring, authoring
 
 
+def looks_unconfigured(env: dict[str, str] | None = None) -> bool:
+    """True when *none* of the secrets are set.
+
+    Distinguishes a fork nobody has set up yet — which should sit quiet —
+    from a half-configured one, where a missing secret is a real error worth
+    shouting about.
+    """
+    env = dict(os.environ if env is None else env)
+    return not any(
+        env.get(name, "").strip()
+        for name in ("AUTOGRAM_STORAGE", "AUTOGRAM_IG_TOKEN", "AUTOGRAM_IG_USER_ID")
+    )
+
+
 def load(env: dict[str, str] | None = None, *, dry_run: bool = False) -> Config:
     """Build a Config from the environment, or raise ConfigError."""
     env = dict(os.environ if env is None else env)

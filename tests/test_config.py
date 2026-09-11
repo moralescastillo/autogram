@@ -70,3 +70,12 @@ def test_load_builds_config():
     assert config.serving_dsn == GCS
     assert config.is_split
     assert not config.dry_run
+
+
+def test_unconfigured_is_distinguishable_from_misconfigured():
+    # A fresh fork with no secrets should sit quiet; a half-set-up one should
+    # report the missing secret loudly.
+    from autogram.config import looks_unconfigured
+
+    assert looks_unconfigured(env={})
+    assert not looks_unconfigured(env={"AUTOGRAM_IG_TOKEN": "x"})

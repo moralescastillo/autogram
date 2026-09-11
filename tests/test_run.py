@@ -296,3 +296,28 @@ class TestServingRequirement:
         )
 
         assert build_context(config, dry_run=True) is not None
+
+
+class TestUnconfiguredFork:
+    def test_exits_cleanly_with_no_secrets(self, monkeypatch, capsys):
+        # A forked repo that nobody has configured must not email its owner
+        # every hour. It has nothing to do, which is not a failure.
+        from autogram.run import run
+
+        for name in ("AUTOGRAM_STORAGE", "AUTOGRAM_IG_TOKEN", "AUTOGRAM_IG_USER_ID"):
+            monkeypatch.delenv(name, raising=False)
+
+        assert run() == EXIT_OK
+        assert "not configured yet" in capsys.readouterr().out
+
+    def test_half_configured_still_fails_loudly(self, monkeypatch):
+        # A missing secret when others are set is a real mistake.
+        from autogram.config import ConfigError
+        from autogram.run import run
+
+        monkeypatch.delenv("AUTOGRAM_STORAGE", raising=False)
+        monkeypatch.setenv("AUTOGRAM_IG_TOKEN", "token")
+        monkeypatch.delenv("AUTOGRAM_IG_USER_ID", raising=False)
+
+        with pytest.raises(ConfigError):
+            run()

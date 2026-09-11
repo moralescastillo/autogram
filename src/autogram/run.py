@@ -152,7 +152,24 @@ def _discover(ctx: Context, root: str, *, immediate: bool):
 
 def run(*, dry_run: bool = False, now: datetime | None = None) -> int:
     """Execute one pass. Returns a process exit code."""
-    config = config_mod.load(dry_run=dry_run)
+    try:
+        config = config_mod.load(dry_run=dry_run)
+    except ConfigError as exc:
+        if config_mod.looks_unconfigured():
+            # A freshly forked repository has no secrets yet. That is not a
+            # failure — it has nothing to do. Failing here would email the
+            # owner every hour until they finish setting up, which is exactly
+            # the noise that teaches people to ignore these emails.
+            print("Autogram is not configured yet, so there is nothing to do.")
+            print()
+            print("Add these repository secrets to start posting:")
+            print("  AUTOGRAM_STORAGE      where your content lives")
+            print("  AUTOGRAM_IG_TOKEN     your Instagram access token")
+            print("  AUTOGRAM_IG_USER_ID   your Instagram account id")
+            print()
+            print("See docs/SETUP.md. Until then this workflow will do nothing.")
+            return EXIT_OK
+        raise
 
     try:
         ctx = build_context(config, now=now, dry_run=dry_run)
