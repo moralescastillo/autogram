@@ -410,3 +410,65 @@ class TestStagingSweep:
 
         assert serving.list("staging/long-gone") == []
         assert serving.list("staging/post-a") != []
+
+
+class TestStorageFailures:
+    def test_upload_rejection_writes_error_txt(self, authoring, serving):
+        # A GCS rejection used to escape as a traceback: red X in Actions,
+        # nothing at all in the user's Drive. Every failure must explain
+        # itself where the user will see it.
+        from botocore.exceptions import ClientError
+
+        add_post(authoring, "post-a", {"01.jpg": image_bytes()})
+
+        class Refusing(type(serving)):
+            def write(self, path, data):
+                raise ClientError(
+                    {"Error": {"Code": "SignatureDoesNotMatch",
+                               "Message": "Invalid argument"}},
+                    "PutObject",
+                )
+
+        ctx = make_context(authoring, Refusing(serving.root), [])
+        outcome = publish_post(ctx, get_post(ctx))
+
+        assert outcome.result is Result.FAILED
+        error = authoring.read("queue/post-a/error.txt").decode()
+        assert "SignatureDoesNotMatch" in error
+        # And it should say what to actually check, since the error name is
+        # misleading — this is rarely a credentials problem.
+        assert "not a credentials problem" in error
+
+    def test_post_survives_a_storage_failure(self, authoring, serving):
+        from botocore.exceptions import ClientError
+
+        add_post(authoring, "post-a", {"01.jpg": image_bytes()})
+
+        class Refusing(type(serving)):
+            def write(self, path, data):
+                raise ClientError(
+                    {"Error": {"Code": "AccessDenied", "Message": "nope"}}, "PutObject"
+                )
+
+        ctx = make_context(authoring, Refusing(serving.root), [])
+        publish_post(ctx, get_post(ctx))
+
+        # Nothing published, nothing moved, nothing lost.
+        assert authoring.read("queue/post-a/01.jpg")
+        assert not Ledger(authoring).is_published("post-a")
+
+
+class TestGcsCompatibility:
+    def test_gcs_client_disables_checksums(self):
+        # boto3 1.36+ sends a CRC32 header GCS rejects, surfacing as the
+        # thoroughly misleading SignatureDoesNotMatch.
+        from autogram.storage.objectstore import ObjectStore
+
+        gcs = ObjectStore("k", "s", "bucket", endpoint_url="https://storage.googleapis.com")
+        assert gcs._client.meta.config.request_checksum_calculation == "when_required"
+
+    def test_aws_keeps_its_defaults(self):
+        from autogram.storage.objectstore import ObjectStore
+
+        s3 = ObjectStore("k", "s", "bucket", region="us-east-1")
+        assert s3._client.meta.config.request_checksum_calculation != "when_required"

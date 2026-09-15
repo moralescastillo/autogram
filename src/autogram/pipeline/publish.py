@@ -111,7 +111,46 @@ def publish_post(ctx: Context, post: Post) -> Outcome:
         _clear_marker(ctx, post)
         return _fail(ctx, post, [str(exc)])
 
+    except Exception as exc:
+        # Anything else — storage refusing an upload, a network failure, a bug
+        # — must still explain itself in the post's folder. Letting it escape
+        # as a traceback means the user sees a red X in Actions and nothing at
+        # all in their Drive, which is the opposite of "fail loudly".
+        log.exception("Unexpected failure publishing '%s'", name)
+        _cleanup_staged(ctx, staged)
+        _clear_marker(ctx, post)
+        return _fail(ctx, post, [_describe_unexpected(exc)])
+
     return _succeed(ctx, post, published.id, staged)
+
+
+def _describe_unexpected(exc: Exception) -> str:
+    """Render a non-Instagram failure in terms the user can act on."""
+    detail = str(exc)
+
+    if "SignatureDoesNotMatch" in detail:
+        return (
+            "The storage bucket rejected the upload (SignatureDoesNotMatch). "
+            "Despite the name this is usually not a credentials problem — "
+            "check the access key and secret in AUTOGRAM_STORAGE, and that "
+            "the bucket name is correct. "
+            f"Underlying error: {detail}"
+        )
+
+    if "AccessDenied" in detail or "Forbidden" in detail:
+        return (
+            "The storage bucket refused access. Check that the HMAC key "
+            "belongs to an account with write permission on the bucket. "
+            f"Underlying error: {detail}"
+        )
+
+    if "NoSuchBucket" in detail:
+        return (
+            "The storage bucket does not exist. Check the bucket name in "
+            f"AUTOGRAM_STORAGE. Underlying error: {detail}"
+        )
+
+    return f"{type(exc).__name__}: {detail}"
 
 
 def _stage(ctx: Context, post: Post, items) -> dict[str, str]:

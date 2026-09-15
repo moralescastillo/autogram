@@ -54,21 +54,34 @@ class ObjectStore(Storage):
         self.bucket = bucket
         self.prefix = prefix.strip("/")
 
+        is_gcs = bool(endpoint_url and "googleapis" in endpoint_url)
+
+        settings = {
+            # SigV4 is required for GCS presigned URLs to validate, and is the
+            # current default for S3 anyway.
+            "signature_version": "s3v4",
+            "s3": {"addressing_style": "path"},
+        }
+
+        if is_gcs:
+            # boto3 1.36 began sending a CRC32 checksum header on every upload.
+            # Google's S3-compatible API does not accept it and rejects the
+            # request as SignatureDoesNotMatch — a thoroughly misleading error,
+            # since the credentials are fine. Restoring the previous behaviour
+            # (checksums only where the operation requires one) fixes it.
+            settings["request_checksum_calculation"] = "when_required"
+            settings["response_checksum_validation"] = "when_required"
+
         self._client = boto3.client(
             "s3",
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             endpoint_url=endpoint_url,
             region_name=region,
-            # SigV4 is required for GCS presigned URLs to validate, and is the
-            # current default for S3 anyway.
-            config=Config(
-                signature_version="s3v4",
-                s3={"addressing_style": "path"},
-            ),
+            config=Config(**settings),
         )
 
-        if endpoint_url and "googleapis" in endpoint_url:
+        if is_gcs:
             self._disable_encoding_type()
 
     def _disable_encoding_type(self) -> None:
