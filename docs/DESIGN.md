@@ -1,8 +1,9 @@
 # Autogram — Design
 
-Status: **implemented**. This document and the code are kept in step; where
+Status: **implemented and running.** First live post published 2026-09-15
+through GitHub Actions. This document and the code are kept in step; where
 implementation proved a decision wrong, the decision was changed here too.
-Date: 2026-09-09
+Date: 2026-09-09 (last verified 2026-09-15)
 
 A public, forkable tool that publishes content to an Instagram Business or
 Creator account on a schedule. The user's content and state live in their own
@@ -54,6 +55,8 @@ sources. Two findings changed the design materially.
 | **Long-lived tokens expire in 60 days and must be refreshed** while still valid; a token unrefreshed for 60 days is dead permanently | Drives §4 entirely. Refresh requires the token be ≥24h old. |
 | GitHub Actions disables scheduled workflows after 60 days of repository inactivity on public repos; **only commits reliably reset the clock** | Drives §7.4. |
 | GCS supports HMAC keys usable with S3-compatible clients against `storage.googleapis.com` | Keeps GCS config to one string, no service-account JSON. |
+| **Meta's fetcher accepts GCS V4 presigned URLs.** Confirmed by a live publish, 2026-09-15 | The bucket stays private; no public objects, no `GoogleAccessId` swap, and the documented fallback is not needed. |
+| **boto3 1.36+ sends a CRC32 checksum GCS rejects**, surfacing as `SignatureDoesNotMatch` on upload | Misleading enough to look like bad credentials. GCS clients set `request_checksum_calculation="when_required"`; AWS keeps its defaults. |
 | **Google Drive service accounts have zero storage quota** and cannot upload, even into a folder you own | Drive must use OAuth with a refresh token — which is one string, not a JSON blob. This reverses an earlier assumption in this design. |
 | A Google OAuth app left in "testing" status expires refresh tokens after **7 days** | The app must be set to "in production". Must be prominent in setup docs. |
 | **Drive needs the full `drive` scope, not `drive.file`.** `drive.file` only covers files the app itself created or the user picked through Google's Picker UI — folders made by hand in the Drive mobile app are invisible to it | Verified 2026-09-09. Since authoring by hand on a phone *is* the workflow, the narrow scope cannot work. See §6.2.1. |
@@ -66,9 +69,6 @@ Listed so they are not silently assumed:
 - **Current Graph API version.** Meta's docs show `v25.0`, which is the
   default; it is configurable, so a bump is a one-line change. Worth
   confirming against Meta's changelog before the first live run.
-- **Signed URL compatibility.** Whether Meta's fetcher accepts GCS V4 presigned
-  URLs generated via HMAC, and whether the `GoogleAccessId` parameter swap is
-  needed. Fallback: temporarily public objects, deleted after publish.
 - **Whether `gh workflow enable` resets the inactivity clock**, which would
   avoid keepalive commits entirely.
 
