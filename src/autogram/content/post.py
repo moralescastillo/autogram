@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from enum import Enum
 
 import yaml
@@ -33,7 +34,7 @@ POST_FILE = "post.md"
 #: Front-matter keys a post may set. Anything else is a typo, and typos here
 #: fail silently — an unrecognised "aspcet:" would simply never be applied.
 KNOWN_KEYS = {"type", "aspect", "user_tags", "location_id", "alt_text",
-              "cover", "share_to_feed", "thumb_offset"}
+              "cover", "share_to_feed", "thumb_offset", "publish_at"}
 
 CAPTION_MAX_LENGTH = 2200
 HASHTAG_MAX_COUNT = 30
@@ -85,6 +86,9 @@ class Post:
     cover: str | None = None
     share_to_feed: bool = True
     thumb_offset: int | None = None
+    #: Naive times are local to the policy's timezone; a bare date means that
+    #: day's usual slot. Resolved in run.py, which has the policy.
+    publish_at: date | datetime | None = None
     immediate: bool = False
 
     @property
@@ -180,6 +184,24 @@ def _parse_user_tags(raw) -> list[UserTag]:
     return tags
 
 
+def _parse_publish_at(raw) -> date | datetime | None:
+    # PyYAML already turns 2026-10-25 into a date and 2026-10-25 09:00:00 into a
+    # datetime, but 2026-10-25 09:00 (no seconds) stays a string.
+    if raw is None or isinstance(raw, date):  # datetime is a date too
+        return raw
+    text = str(raw).strip()
+    for parse in (date.fromisoformat, datetime.fromisoformat):
+        try:
+            return parse(text)
+        except ValueError:
+            pass
+    raise PostError(
+        f"has a 'publish_at' of {raw!r} that is not understood. "
+        f"Use a date like 2026-10-25, or a date and time like 2026-10-25 09:30 "
+        f"(a time on its own is not enough)."
+    )
+
+
 def build(folder: str, media_paths: list[str], post_md: str | None, *, immediate: bool = False) -> Post:
     """Assemble a Post from a folder's contents."""
     fields = parse_post_md(post_md) if post_md else {"caption": ""}
@@ -208,6 +230,8 @@ def build(folder: str, media_paths: list[str], post_md: str | None, *, immediate
         except AspectError as exc:
             raise PostError(str(exc)) from exc
 
+    publish_at = _parse_publish_at(fields.get("publish_at"))
+
     return Post(
         folder=folder,
         media=sorted(media_paths, key=natural_key),
@@ -220,7 +244,10 @@ def build(folder: str, media_paths: list[str], post_md: str | None, *, immediate
         cover=fields.get("cover"),
         share_to_feed=bool(fields.get("share_to_feed", True)),
         thumb_offset=int(fields["thumb_offset"]) if fields.get("thumb_offset") is not None else None,
-        immediate=immediate,
+        publish_at=publish_at,
+        # A dated post is outside the cadence, like now/, so it never uses up
+        # the day's scheduled slot — including when recovery records it.
+        immediate=immediate or publish_at is not None,
     )
 
 
@@ -268,7 +295,11 @@ def discover(
             on_error(entry.path, exc)
             continue
 
-        if cover and not post.cover:
+        if post.cover and "/" not in post.cover:
+            # A cover named in post.md is a file in this folder, not a post image.
+            post.cover = f"{entry.path}/{post.cover}"
+            post.media = [m for m in post.media if m != post.cover]
+        elif cover and not post.cover:
             post.cover = cover
 
         posts.append(post)

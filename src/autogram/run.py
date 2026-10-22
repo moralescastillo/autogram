@@ -39,7 +39,7 @@ from autogram.pipeline.publish import Result, publish_post, sweep_staging
 from autogram.pipeline.recover import resolve_pending
 from autogram.scheduling.policy import PolicyError
 from autogram.scheduling.policy import parse as parse_policy
-from autogram.scheduling.scheduler import is_due, next_slot
+from autogram.scheduling.scheduler import is_due, next_slot, target_time
 from autogram.state import log as events
 from autogram.state.ledger import Ledger, LedgerCorrupt
 from autogram.state.log import EventLog
@@ -201,6 +201,23 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> int:
         raise
 
 
+def _publish_at(ctx: Context, post) -> datetime | None:
+    """When a dated post may go out, as an aware datetime."""
+    when = post.publish_at
+    if when is None:
+        return None
+    if not isinstance(when, datetime):
+        # A bare date lands at that day's usual randomised slot.
+        return target_time(ctx.policy, when, ctx.ig_user_id)
+    return when if when.tzinfo else when.replace(tzinfo=ctx.policy.timezone)
+
+
+def _dated_ready(ctx: Context, posts) -> list:
+    """Dated posts whose moment has come, earliest first."""
+    ready = [p for p in posts if p.publish_at is not None and _publish_at(ctx, p) <= ctx.now]
+    return sorted(ready, key=lambda p: _publish_at(ctx, p))
+
+
 def _run_with_context(ctx: Context, *, dry_run: bool) -> int:
     immediate_posts = _discover(ctx, NOW_ROOT, immediate=True)
     queued_posts = _discover(ctx, QUEUE_ROOT, immediate=False)
@@ -220,10 +237,22 @@ def _run_with_context(ctx: Context, *, dry_run: bool) -> int:
             if outcome.result is Result.FAILED:
                 return _finish(ctx, outcome, immediate_posts + queued_posts)
 
+    all_posts = immediate_posts + queued_posts
+    dated_ready = _dated_ready(ctx, all_posts)
+    # A dated post waits for its date wherever it sits, and never takes a
+    # cadence slot early.
+    immediate_posts = [p for p in immediate_posts if p.publish_at is None]
+    queued_posts = [p for p in queued_posts if p.publish_at is None]
+
     if immediate_posts:
         post = immediate_posts[0]
         log.info("Publishing '%s' immediately (found in %s/).", post.name, NOW_ROOT)
-        return _finish(ctx, publish_post(ctx, post), immediate_posts + queued_posts)
+        return _finish(ctx, publish_post(ctx, post), all_posts)
+
+    if dated_ready:
+        post = dated_ready[0]
+        log.info("Publishing '%s' — scheduled for %s.", post.name, _publish_at(ctx, post))
+        return _finish(ctx, publish_post(ctx, post), all_posts)
 
     # An immediate post is by definition outside the cadence, so it does not
     # consume the day's scheduled slot.
@@ -244,7 +273,7 @@ def _run_with_context(ctx: Context, *, dry_run: bool) -> int:
 
     post = queued_posts[0]
     log.info("Publishing '%s' — %s.", post.name, decision.reason)
-    return _finish(ctx, publish_post(ctx, post), immediate_posts + queued_posts)
+    return _finish(ctx, publish_post(ctx, post), all_posts)
 
 
 def _finish(ctx: Context, outcome, posts) -> int:
@@ -293,15 +322,25 @@ def _report_dry_run(ctx: Context, immediate_posts, queued_posts) -> int:
     print(f"Next slot: {upcoming:%a %Y-%m-%d %H:%M} {ctx.policy.timezone_name}")
     print()
 
+    dated_ready = _dated_ready(ctx, immediate_posts + queued_posts)
+    undated_now = [p for p in immediate_posts if p.publish_at is None]
+    undated_queue = [p for p in queued_posts if p.publish_at is None]
+
     for post in immediate_posts:
-        print(f"{NOW_ROOT}/{post.name} — would publish immediately")
+        when = _publish_at(ctx, post)
+        action = f"scheduled for {when:%a %Y-%m-%d %H:%M}" if when else "would publish immediately"
+        print(f"{NOW_ROOT}/{post.name} — {action}")
 
     print(f"{QUEUE_ROOT}/: {len(queued_posts)} post(s)")
-    for index, post in enumerate(queued_posts):
-        marker = " <- next" if index == 0 else ""
+    next_queued = undated_queue[0] if undated_queue else None
+    for post in queued_posts:
+        when = _publish_at(ctx, post)
+        marker = f" scheduled for {when:%a %Y-%m-%d %H:%M}" if when else ""
+        if post is next_queued:
+            marker = " <- next"
         print(f"  {post.name} ({post.resolved_type.value}, {len(post.media)} file(s)){marker}")
 
-    candidate = (immediate_posts or queued_posts or [None])[0]
+    candidate = (undated_now or dated_ready or undated_queue or [None])[0]
     if candidate is not None:
         print()
         print(f"Checking '{candidate.name}':")

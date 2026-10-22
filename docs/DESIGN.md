@@ -269,6 +269,17 @@ matters most for carousels, where Instagram crops every child to match the
 first item — a mismatched image would be silently mangled. Omit the field and
 no check runs.
 
+**`publish_at`** pins a post to a moment: a datetime in the policy's timezone,
+or a bare date, which means that day's usual hashed slot (§7.2). It is
+recorded like a `now/` post (§7.3) — outside the cadence, so it does not use up
+the day's slot — and a dated post waits for its date wherever it sits, and
+never fills a cadence slot early.
+
+**Reel covers** come from a `cover.*` image in the folder, or from the file
+named by `cover:`; either way the image is kept out of the media list.
+`thumb_offset` (milliseconds) picks a frame instead. Story link stickers and
+highlights are not in the publishing API, so they are not supported.
+
 **Hashtags** are just caption text; nothing special is needed. **User tags**
 are a real API field and are handled separately, as above.
 

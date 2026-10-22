@@ -321,3 +321,61 @@ class TestUnconfiguredFork:
 
         with pytest.raises(ConfigError):
             run()
+
+
+class TestDatedPosts:
+    def test_waits_for_its_date_even_when_the_cadence_is_due(self, authoring, serving):
+        add_post(authoring, "dated", {"01.jpg": image_bytes()}, "---\npublish_at: 2099-01-01\n---\n")
+        ctx = make_context(authoring, serving, [])
+        ctx.now = due_now(ctx)
+
+        assert _run_with_context(ctx, dry_run=False) == EXIT_OK
+        assert not Ledger(authoring).is_published("dated")
+
+    def test_cadence_skips_a_future_dated_post(self, authoring, serving):
+        add_post(authoring, "a-dated", {"01.jpg": image_bytes()}, "---\npublish_at: 2099-01-01\n---\n")
+        add_post(authoring, "b-plain", {"01.jpg": image_bytes()})
+        ctx = make_context(authoring, serving, publish_responses())
+        ctx.now = due_now(ctx)
+
+        _run_with_context(ctx, dry_run=False)
+        assert Ledger(authoring).is_published("b-plain")
+
+    def test_publishes_once_its_time_passes_ignoring_cadence(self, authoring, serving):
+        ctx = make_context(authoring, serving, publish_responses())
+        # Before today's slot, and the day's slot already used: cadence says no.
+        ctx.now = target_time(ctx.policy, ctx.now.date(), ACCOUNT) - timedelta(hours=1)
+        Ledger(authoring).record("earlier", now=ctx.now - timedelta(minutes=5))
+        when = (ctx.now - timedelta(minutes=1)).astimezone(ctx.policy.timezone)
+        add_post(
+            authoring, "dated", {"01.jpg": image_bytes()},
+            f"---\npublish_at: '{when:%Y-%m-%d %H:%M}'\n---\n",
+        )
+
+        assert _run_with_context(ctx, dry_run=False) == EXIT_OK
+        entry = Ledger(authoring).find("dated")
+        assert entry is not None and entry.immediate
+
+    def test_bare_date_uses_that_days_slot(self, authoring, serving):
+        ctx = make_context(authoring, serving, [])
+        day = ctx.now.astimezone(ctx.policy.timezone).date()
+        add_post(authoring, "dated", {"01.jpg": image_bytes()}, f"---\npublish_at: {day}\n---\n")
+        ctx.now = target_time(ctx.policy, day, ACCOUNT) - timedelta(minutes=1)
+
+        _run_with_context(ctx, dry_run=False)
+        assert not Ledger(authoring).is_published("dated")
+
+    def test_now_folder_also_waits_for_the_date(self, authoring, serving):
+        add_post(authoring, "dated", {"01.jpg": image_bytes()}, "---\npublish_at: 2099-01-01\n---\n", root="now")
+        ctx = make_context(authoring, serving, [])
+
+        _run_with_context(ctx, dry_run=False)
+        assert not Ledger(authoring).is_published("dated")
+
+    def test_dry_run_shows_the_scheduled_time(self, authoring, serving, capsys):
+        add_post(authoring, "dated", {"01.jpg": image_bytes()}, "---\npublish_at: 2099-01-01 09:30\n---\n")
+        ctx = make_context(authoring, serving, [FakeResponse({"id": "1", "username": "me"})])
+
+        _run_with_context(ctx, dry_run=True)
+
+        assert "scheduled for Thu 2099-01-01 09:30" in capsys.readouterr().out

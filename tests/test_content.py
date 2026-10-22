@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import shutil
+from datetime import date, datetime
 
 import pytest
 from PIL import Image
@@ -221,6 +222,37 @@ class TestDiscovery:
         assert post.media == ["queue/p/clip.mp4"]
         assert post.cover == "queue/p/cover.jpg"
         assert post.resolved_type is PostType.REEL
+
+    def test_cover_named_in_post_md_is_resolved_and_not_media(self, storage):
+        storage.write("queue/p/clip.mp4", b"video-bytes")
+        storage.write("queue/p/thumb.jpg", make_image())
+        storage.write("queue/p/post.md", b"---\ncover: thumb.jpg\n---\n")
+
+        post = discover(storage, "queue")[0]
+        assert post.media == ["queue/p/clip.mp4"]
+        assert post.cover == "queue/p/thumb.jpg"
+
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("2026-10-25", date(2026, 10, 25)),
+            ("'2026-10-25'", date(2026, 10, 25)),
+            ("2026-10-25 09:30", datetime(2026, 10, 25, 9, 30)),
+            ("2026-10-25 09:30:00", datetime(2026, 10, 25, 9, 30)),
+        ],
+    )
+    def test_publish_at_shapes(self, storage, raw, expected):
+        storage.write("queue/p/01.jpg", make_image())
+        storage.write("queue/p/post.md", f"---\npublish_at: {raw}\n---\n".encode())
+
+        post = discover(storage, "queue")[0]
+        assert post.publish_at == expected
+        assert type(post.publish_at) is type(expected)
+        assert post.immediate
+
+    def test_unreadable_publish_at_is_an_error(self):
+        with pytest.raises(PostError, match="publish_at"):
+            build("q/p", ["q/p/01.jpg"], "---\npublish_at: next tuesday\n---\n")
 
     def test_uppercase_extensions_are_recognised(self, storage):
         # Phones write .JPG and .HEIC.

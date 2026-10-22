@@ -300,6 +300,28 @@ before posting, rather than letting Instagram silently crop them.
 **Posting immediately.** Anything in `now/` goes out on the next hourly run,
 ignoring your schedule. It works from your phone with no GitHub involvement.
 
+**Posting on a specific date.** Add `publish_at` to `post.md` and the post
+waits for that moment, then goes out whatever your cadence says — and without
+using up that day's scheduled slot:
+
+```markdown
+---
+publish_at: 2026-10-25 09:30   # in your autogram.yml timezone
+---
+```
+
+A date on its own (`publish_at: 2026-10-25`) posts at that day's usual random
+time within your window. The post can sit in `queue/` or `now/`; either way it
+waits.
+
+**Reel covers.** Put an image called `cover.jpg` next to the video, or name a
+file with `cover: thumb.jpg` in `post.md`. Without one, `thumb_offset: 1500`
+picks the frame 1.5 seconds in.
+
+**Stories cannot have links or go into highlights.** Instagram's publishing API
+does not offer link stickers or highlights, so add those in the app after the
+story is up.
+
 **When something fails.** An `error.txt` appears in the post's folder
 explaining what went wrong, in plain language. GitHub also emails you about the
 failed run. The post stays in `queue/` and is retried, so nothing is lost.
