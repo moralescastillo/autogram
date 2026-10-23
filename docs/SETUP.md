@@ -320,7 +320,20 @@ picks the frame 1.5 seconds in.
 
 **Stories cannot have links or go into highlights.** Instagram's publishing API
 does not offer link stickers or highlights, so add those in the app after the
-story is up.
+story is up. To be reminded, put the link in the story's `post.md`:
+
+```markdown
+---
+type: story
+link: https://example.com/whatever
+---
+```
+
+and, optionally, get a push to your phone when the story goes live: install the
+[ntfy](https://ntfy.sh) app, subscribe to a topic name nobody would guess (it
+works as a password), and add a secret `AUTOGRAM_NOTIFY_URL` set to
+`https://ntfy.sh/<that-topic>`. Without the secret, the link is only written to
+the run's log.
 
 **When something fails.** An `error.txt` appears in the post's folder
 explaining what went wrong, in plain language. GitHub also emails you about the

@@ -22,6 +22,8 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 
+import requests
+
 from autogram.content.post import Post, PostType
 from autogram.content.validate import ValidationResult, load_media, validate
 from autogram.instagram.errors import Disposition, InstagramError, MediaNotReady
@@ -261,7 +263,29 @@ def _succeed(ctx: Context, post: Post, media_id: str | None, staged: list[str],
 
     _cleanup_staged(ctx, staged)
 
+    if post.link:
+        _notify_link(ctx, post)
+
     return Outcome(Result.PUBLISHED, name, media_id=media_id)
+
+
+def _notify_link(ctx: Context, post: Post) -> None:
+    """Remind the user to add the link sticker the API cannot add."""
+    if not ctx.notify_url:
+        log.info("Story '%s' is up; add its link by hand: %s", post.name, post.link)
+        return
+    try:
+        # Body, not headers, carries the post name: headers must be latin-1.
+        requests.post(
+            ctx.notify_url,
+            data=f"Story '{post.name}' is live. Add the link:\n{post.link}".encode(),
+            headers={"Title": "Add the story link",
+                     **({"Click": post.link} if post.link.isascii() else {})},
+            timeout=10,
+        ).raise_for_status()
+    except Exception as exc:
+        # The story is already up; a missed reminder must not fail the run.
+        log.warning("Could not send the link reminder for '%s': %s", post.name, exc)
 
 
 def _fail(ctx: Context, post: Post, problems: list[str]) -> Outcome:

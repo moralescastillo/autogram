@@ -43,4 +43,5 @@ jobs:
           AUTOGRAM_STORAGE: ${{ secrets.AUTOGRAM_STORAGE }}
           AUTOGRAM_IG_TOKEN: ${{ secrets.AUTOGRAM_IG_TOKEN }}
           AUTOGRAM_IG_USER_ID: ${{ secrets.AUTOGRAM_IG_USER_ID }}
+          AUTOGRAM_NOTIFY_URL: ${{ secrets.AUTOGRAM_NOTIFY_URL }}
         run: autogram run ${{ inputs.dry_run && '--dry-run' || '' }}

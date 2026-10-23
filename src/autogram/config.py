@@ -6,6 +6,9 @@ Three secrets, no more (DESIGN.md §10):
 - ``AUTOGRAM_IG_TOKEN``   — bootstrap Instagram token, read once (§4)
 - ``AUTOGRAM_IG_USER_ID`` — the Instagram professional account id
 
+Plus one optional: ``AUTOGRAM_NOTIFY_URL``, an ntfy.sh topic URL that is told
+when a story with a ``link`` goes up.
+
 Posting policy (cadence, window, timezone) is *not* here. It lives in
 ``autogram.yml`` at the storage root, so the user edits it from their phone
 alongside their content rather than through GitHub.
@@ -49,6 +52,7 @@ class Config:
     ig_bootstrap_token: str
     ig_user_id: str
     dry_run: bool = False
+    notify_url: str | None = None
 
     @property
     def is_split(self) -> bool:
@@ -139,4 +143,5 @@ def load(env: dict[str, str] | None = None, *, dry_run: bool = False) -> Config:
         ig_bootstrap_token=env["AUTOGRAM_IG_TOKEN"].strip(),
         ig_user_id=env["AUTOGRAM_IG_USER_ID"].strip(),
         dry_run=dry_run,
+        notify_url=env.get("AUTOGRAM_NOTIFY_URL", "").strip() or None,
     )

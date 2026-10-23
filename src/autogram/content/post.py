@@ -34,7 +34,7 @@ POST_FILE = "post.md"
 #: Front-matter keys a post may set. Anything else is a typo, and typos here
 #: fail silently — an unrecognised "aspcet:" would simply never be applied.
 KNOWN_KEYS = {"type", "aspect", "user_tags", "location_id", "alt_text",
-              "cover", "share_to_feed", "thumb_offset", "publish_at"}
+              "cover", "share_to_feed", "thumb_offset", "publish_at", "link"}
 
 CAPTION_MAX_LENGTH = 2200
 HASHTAG_MAX_COUNT = 30
@@ -89,6 +89,9 @@ class Post:
     #: Naive times are local to the policy's timezone; a bare date means that
     #: day's usual slot. Resolved in run.py, which has the policy.
     publish_at: date | datetime | None = None
+    #: Stories only. The API cannot add a link sticker, so this is sent as a
+    #: reminder to add it by hand once the story is up.
+    link: str | None = None
     immediate: bool = False
 
     @property
@@ -232,6 +235,10 @@ def build(folder: str, media_paths: list[str], post_md: str | None, *, immediate
 
     publish_at = _parse_publish_at(fields.get("publish_at"))
 
+    link = str(fields["link"]).strip() if fields.get("link") else None
+    if link and declared_type is not PostType.STORY:
+        raise PostError("has a 'link', but only stories take one. Add 'type: story'.")
+
     return Post(
         folder=folder,
         media=sorted(media_paths, key=natural_key),
@@ -245,6 +252,7 @@ def build(folder: str, media_paths: list[str], post_md: str | None, *, immediate
         share_to_feed=bool(fields.get("share_to_feed", True)),
         thumb_offset=int(fields["thumb_offset"]) if fields.get("thumb_offset") is not None else None,
         publish_at=publish_at,
+        link=link,
         # A dated post is outside the cadence, like now/, so it never uses up
         # the day's scheduled slot — including when recovery records it.
         immediate=immediate or publish_at is not None,

@@ -472,3 +472,57 @@ class TestGcsCompatibility:
 
         s3 = ObjectStore("k", "s", "bucket", region="us-east-1")
         assert s3._client.meta.config.request_checksum_calculation != "when_required"
+
+
+class FakeNtfy:
+    def raise_for_status(self):
+        pass
+
+
+class TestStoryLink:
+    def _publish(self, authoring, serving, monkeypatch, notify_url):
+        sent = []
+        monkeypatch.setattr(
+            "autogram.pipeline.publish.requests.post",
+            lambda url, **kw: sent.append((url, kw)) or FakeNtfy(),
+        )
+        add_post(
+            authoring, "story-a", {"01.jpg": image_bytes(1080, 1920)},
+            "---\ntype: story\nlink: https://example.com/x\n---\n",
+        )
+        ctx = make_context(
+            authoring,
+            serving,
+            [
+                FakeResponse({"id": "c1"}),
+                FakeResponse({"status_code": "FINISHED"}),
+                FakeResponse({"id": "m1"}),
+            ],
+        )
+        ctx.notify_url = notify_url
+        assert publish_post(ctx, get_post(ctx, "story-a")).result is Result.PUBLISHED
+        return sent
+
+    def test_link_is_sent_after_publish(self, authoring, serving, monkeypatch):
+        sent = self._publish(authoring, serving, monkeypatch, "https://ntfy.sh/t")
+        assert sent[0][0] == "https://ntfy.sh/t"
+        assert b"https://example.com/x" in sent[0][1]["data"]
+
+    def test_no_url_sends_nothing(self, authoring, serving, monkeypatch):
+        assert self._publish(authoring, serving, monkeypatch, None) == []
+
+    def test_failed_notify_does_not_fail_publish(self, authoring, serving, monkeypatch):
+        def boom(*a, **kw):
+            raise ConnectionError("down")
+        monkeypatch.setattr("autogram.pipeline.publish.requests.post", boom)
+        add_post(
+            authoring, "story-a", {"01.jpg": image_bytes(1080, 1920)},
+            "---\ntype: story\nlink: https://example.com/x\n---\n",
+        )
+        ctx = make_context(
+            authoring, serving,
+            [FakeResponse({"id": "c1"}), FakeResponse({"status_code": "FINISHED"}),
+             FakeResponse({"id": "m1"})],
+        )
+        ctx.notify_url = "https://ntfy.sh/t"
+        assert publish_post(ctx, get_post(ctx, "story-a")).result is Result.PUBLISHED

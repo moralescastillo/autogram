@@ -36,6 +36,7 @@ class Context:
     ig_user_id: str
     now: datetime
     dry_run: bool = False
+    notify_url: str | None = None
 
     def staging_path(self, post_name: str, filename: str) -> str:
         return f"{STAGING_ROOT}/{post_name}/{filename}"

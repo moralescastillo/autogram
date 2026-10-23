@@ -177,6 +177,11 @@ class TestTypeInference:
         post = build("q/p", ["q/p/01.jpg"], "---\ntype: story\n---\n")
         assert post.resolved_type is PostType.STORY
 
+    def test_link_needs_a_story(self):
+        assert build("q/p", ["q/p/01.jpg"], "---\ntype: story\nlink: https://x.y\n---\n").link == "https://x.y"
+        with pytest.raises(PostError, match="only stories"):
+            build("q/p", ["q/p/01.jpg"], "---\nlink: https://x.y\n---\n")
+
     def test_no_media_is_an_error(self):
         with pytest.raises(PostError, match="no media"):
             build("q/p", [], None).resolved_type

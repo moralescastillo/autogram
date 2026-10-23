@@ -110,6 +110,7 @@ def build_context(config, *, now: datetime | None = None, dry_run: bool = False)
         ig_user_id=config.ig_user_id,
         now=now,
         dry_run=dry_run,
+        notify_url=config.notify_url,
     )
 
     if not dry_run and token.days_remaining(now) < 7:
