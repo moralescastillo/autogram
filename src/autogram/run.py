@@ -245,15 +245,10 @@ def _run_with_context(ctx: Context, *, dry_run: bool) -> int:
     immediate_posts = [p for p in immediate_posts if p.publish_at is None]
     queued_posts = [p for p in queued_posts if p.publish_at is None]
 
-    if immediate_posts:
-        post = immediate_posts[0]
-        log.info("Publishing '%s' immediately (found in %s/).", post.name, NOW_ROOT)
-        return _finish(ctx, publish_post(ctx, post), all_posts)
-
-    if dated_ready:
-        post = dated_ready[0]
-        log.info("Publishing '%s' — scheduled for %s.", post.name, _publish_at(ctx, post))
-        return _finish(ctx, publish_post(ctx, post), all_posts)
+    # In priority order. A post that fails is retried next run but must not
+    # hold up the ones behind it (DESIGN.md §12, open question 2).
+    candidates = [(p, f"found in {NOW_ROOT}/") for p in immediate_posts]
+    candidates += [(p, f"scheduled for {_publish_at(ctx, p)}") for p in dated_ready]
 
     # An immediate post is by definition outside the cadence, so it does not
     # consume the day's scheduled slot.
@@ -263,18 +258,25 @@ def _run_with_context(ctx: Context, *, dry_run: bool) -> int:
         ctx.ig_user_id,
         last_published=ctx.ledger.last_published(scheduled_only=True),
     )
+    if decision.due:
+        candidates += [(p, decision.reason) for p in queued_posts]
+        if not queued_posts:
+            log.info("Due to post, but %s/ is empty.", QUEUE_ROOT)
+    else:
+        log.info("Nothing scheduled — %s.", decision.reason)
 
-    if not decision.due:
-        log.info("Nothing to do — %s.", decision.reason)
-        return EXIT_OK
+    failed = []
+    for post, reason in candidates:
+        log.info("Publishing '%s' — %s.", post.name, reason)
+        outcome = publish_post(ctx, post)
+        if outcome.result is not Result.FAILED:
+            code = _finish(ctx, outcome, all_posts)
+            # Still exit non-zero so GitHub emails about the skipped post.
+            return EXIT_POST_FAILED if failed else code
+        failed.append(outcome)
+        _finish(ctx, outcome, all_posts)
 
-    if not queued_posts:
-        log.info("Due to post, but %s/ is empty.", QUEUE_ROOT)
-        return EXIT_OK
-
-    post = queued_posts[0]
-    log.info("Publishing '%s' — %s.", post.name, decision.reason)
-    return _finish(ctx, publish_post(ctx, post), all_posts)
+    return EXIT_POST_FAILED if failed else EXIT_OK
 
 
 def _finish(ctx: Context, outcome, posts) -> int:

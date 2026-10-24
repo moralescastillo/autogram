@@ -256,6 +256,28 @@ class TestBrokenPostsDoNotStopTheRun:
         assert _run_with_context(ctx, dry_run=False) == EXIT_OK
         assert Ledger(authoring).is_published("02-good")
 
+    def test_post_with_bad_media_does_not_block_the_one_behind_it(self, authoring, serving):
+        # Too tall for the feed: fails validation, not post.md parsing.
+        add_post(authoring, "01-too-tall", {"01.jpg": image_bytes(1080, 2400)})
+        add_post(authoring, "02-good", {"01.jpg": image_bytes()})
+        ctx = make_context(authoring, serving, publish_responses())
+        ctx.now = due_now(ctx)
+
+        # Non-zero, so GitHub still emails about the skipped post.
+        assert _run_with_context(ctx, dry_run=False) == EXIT_POST_FAILED
+        assert Ledger(authoring).is_published("02-good")
+        assert authoring.read("queue/01-too-tall/error.txt")
+
+    def test_broken_now_post_does_not_block_the_schedule(self, authoring, serving):
+        add_post(authoring, "urgent", {"01.jpg": image_bytes(1080, 2400)}, root="now")
+        add_post(authoring, "queued", {"01.jpg": image_bytes()})
+        ctx = make_context(authoring, serving, publish_responses())
+        ctx.now = due_now(ctx)
+
+        _run_with_context(ctx, dry_run=False)
+
+        assert Ledger(authoring).is_published("queued")
+
     def test_broken_post_gets_an_explanation(self, authoring, serving):
         add_post(authoring, "broken", {"01.jpg": image_bytes()}, "---\naspcet: 1:1\n---\n")
         ctx = make_context(authoring, serving, [])
